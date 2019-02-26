@@ -105,20 +105,20 @@ class ResNet(nn.Module):
         return out
 
 
-def ResNet18(use_batchnorm=True):
-    return ResNet(BasicBlock, [2,2,2,2], use_batchnorm=use_batchnorm)
+def ResNet18(num_classes=10, use_batchnorm=True):
+    return ResNet(BasicBlock, [2,2,2,2], num_classes=num_classes, use_batchnorm=use_batchnorm)
 
-def ResNet34(use_batchnorm=True):
-    return ResNet(BasicBlock, [3,4,6,3], use_batchnorm=use_batchnorm)
+def ResNet34(num_classes=10, use_batchnorm=True):
+    return ResNet(BasicBlock, [3,4,6,3], num_classes=num_classes, use_batchnorm=use_batchnorm)
 
-def ResNet50(use_batchnorm=True):
-    return ResNet(Bottleneck, [3,4,6,3], use_batchnorm=use_batchnorm)
+def ResNet50(num_classes=10, use_batchnorm=True):
+    return ResNet(Bottleneck, [3,4,6,3], num_classes=num_classes, use_batchnorm=use_batchnorm)
 
-def ResNet101(use_batchnorm=True):
-    return ResNet(Bottleneck, [3,4,23,3], use_batchnorm=use_batchnorm)
+def ResNet101(num_classes=10, use_batchnorm=True):
+    return ResNet(Bottleneck, [3,4,23,3], num_classes=num_classes, use_batchnorm=use_batchnorm)
 
-def ResNet152(use_batchnorm=True):
-    return ResNet(Bottleneck, [3,8,36,3], use_batchnorm=use_batchnorm)
+def ResNet152(num_classes=10, use_batchnorm=True):
+    return ResNet(Bottleneck, [3,8,36,3], num_classes=num_classes, use_batchnorm=use_batchnorm)
 
 
 def test():

@@ -105,3 +105,6 @@ venv.bak/
 
 # Python
 __pycache__/
+
+# Training data for Cifar
+data/
