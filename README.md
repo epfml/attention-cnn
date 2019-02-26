@@ -3,7 +3,8 @@
 MLO internal cifar 10 / 100 reference implementation.
 
 - Single machine
-- Variable batch sizes,
+- Variable batch sizes
+- ...
 
 
 ## Getting started
@@ -17,7 +18,7 @@ MLO internal cifar 10 / 100 reference implementation.
 ## Code organization
 
 ### train.py
-This file contains the training loop and knows how to initialize the problem. It contains a global `config` dictionary that should contain all variable aspects of the experiment. This file can be run standalone (`python3 ./train.py`) or by a manager script (see below).
+This file contains the training loop and it sets up the optimization task. It contains a global `config` dictionary that should contain all configurable parameters. This file can be run standalone (`python3 ./train.py`) or by a manager script (see below).
 
 
 ### experiments/
