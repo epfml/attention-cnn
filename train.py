@@ -33,6 +33,7 @@ def main():
     Train a model
     You can either call this script directly (using the default parameters),
     or import it as a module, override config and run main()
+    :return: scalar of the best accuracy
     """
 
     # Set the seed
@@ -122,7 +123,11 @@ def main():
         if is_best_so_far:
             store_checkpoint("best.checkpoint", model, epoch, mean_test_accuracy.value())
 
+    # Store a final checkpoint
     store_checkpoint("final.checkpoint", model, config['num_epochs'] - 1, mean_test_accuracy.value())
+
+    # Return the optimal accuracy, could be used for learning rate tuning
+    return best_accuracy_so_far.value()
 
 
 def accuracy(predicted_logits, reference):
