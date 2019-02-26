@@ -27,6 +27,8 @@ To do an experiment with specific settings for the `config` dictionary, you can 
 A proper experiment could look like this:
 
 ```python
+import train
+
 train.output_dir = 'output/tuning/lr{}_mom{}'.format(lr, mom)
 os.makedirs(train.output_dir)
 
