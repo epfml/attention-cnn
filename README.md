@@ -73,3 +73,6 @@ This directory is supposed to contain reference settings for hyperparameters, to
 ### utils/
 Miscelaneous utilities. At the time of writing these docs, this contains accumulators for running averages and max, and a simple logging class.
 
+
+## job-monitor
+This setup is compatible with the work-in-progress [epfml/job-monitor](https://github.com/epfml/job-monitor).
