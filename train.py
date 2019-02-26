@@ -241,8 +241,14 @@ def get_model(device):
 
 def store_checkpoint(filename, model, epoch, test_accuracy):
     """Store a checkpoint file to the output directory"""
-    time.sleep(1) # workaround for RuntimeError('Unknown Error -1') https://github.com/pytorch/pytorch/issues/10577
     path = os.path.join(output_dir, filename)
+
+    # Ensure the output directory exists
+    directory = os.path.dirname(path)
+    if not os.path.isdir(directory):
+        os.makedirs(directory, exist_ok=True)
+
+    time.sleep(1) # workaround for RuntimeError('Unknown Error -1') https://github.com/pytorch/pytorch/issues/10577
     torch.save({
         'epoch': epoch,
         'test_accuracy': test_accuracy,
