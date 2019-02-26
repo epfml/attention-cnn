@@ -109,3 +109,6 @@ __pycache__/
 
 # Training data for Cifar
 data/
+
+# Default output directory
+output.tmp/
