@@ -3,7 +3,6 @@
 import json
 import os
 import sys
-from importlib import import_module
 
 # Make sure the root of the project is in the python path.
 # @todo: Should we do this with absolute imports?
@@ -23,12 +22,12 @@ for lr in [0.5, 0.2, 0.1]:
             dataset='Cifar100',
             model='resnet18',
             optimizer='SGD',
-            optimizer_decay_at_epochs=[30, 60, 90, 120, 150, 180, 210, 240, 270],
-            optimizer_decay_with_factor=2.0,
+            optimizer_decay_at_epochs=[150, 250],
+            optimizer_decay_with_factor=10.0,
             optimizer_learning_rate=lr,
             optimizer_momentum=mom,
             optimizer_weight_decay=0.0005,
-            batch_size=128,
+            batch_size=256,
             num_epochs=2,
             seed=42,
         )
