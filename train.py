@@ -137,7 +137,7 @@ def accuracy(predicted_logits, reference):
     return correct_predictions.sum().float() / correct_predictions.nelement()
 
 
-def log_metric(name, values, tags={}):
+def log_metric(name, values, tags):
     """
     Log timeseries data.
     Placeholder implementation.
