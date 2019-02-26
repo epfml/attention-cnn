@@ -56,6 +56,7 @@ def main():
     for epoch in range(config['num_epochs']):
         print('Epoch {:03d}'.format(epoch))
 
+        # Enable training mode (automatic differentiation + batch norm)
         model.train()
 
         # Keep track of statistics during training
