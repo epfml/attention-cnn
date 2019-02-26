@@ -82,11 +82,13 @@ def main():
             mean_train_accuracy.add(acc.item(), weight=len(batch_x))
 
         # Log training stats
-        log_metric('accuracy',
+        log_metric(
+            'accuracy',
             {'epoch': epoch, 'value': mean_train_accuracy.value()},
             {'split': 'train'}
         )
-        log_metric('cross_entropy',
+        log_metric(
+            'cross_entropy',
             {'epoch': epoch, 'value': mean_train_loss.value()},
             {'split': 'train'}
         )
@@ -104,11 +106,13 @@ def main():
             mean_test_accuracy.add(acc.item(), weight=len(batch_x))
 
         # Log test stats
-        log_metric('accuracy',
+        log_metric(
+            'accuracy',
             {'epoch': epoch, 'value': mean_test_accuracy.value()},
             {'split': 'test'}
         )
-        log_metric('cross_entropy',
+        log_metric(
+            'cross_entropy',
             {'epoch': epoch, 'value': mean_test_loss.value()},
             {'split': 'test'}
         )
