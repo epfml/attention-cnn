@@ -74,5 +74,13 @@ This directory is supposed to contain reference settings for hyperparameters, to
 Miscelaneous utilities. At the time of writing these docs, this contains accumulators for running averages and max, and a simple logging class.
 
 
+## Runtime
+
+| Model     | Dataset  | Epochs | Hardware             | Time |
+|-----------|----------|--------|----------------------|------|
+| ResNet 18 | Cifar 10 | 300    | 1x Nvidia Tesla V100 | 2:11 |
+| VGG 11    | Cifar 10 | 300    | 1x Nvidia Tesla V100 | 1:06 |
+
+
 ## job-monitor
 This setup is compatible with the work-in-progress [epfml/job-monitor](https://github.com/epfml/job-monitor).
