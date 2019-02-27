@@ -17,6 +17,8 @@ best_test_accuracy_reached_at_epoch = 279
 
 final_test_accuracy = 0.9468999809026717 # at epoch 299, of course
 
+runtime = 2 + 11./60. # hours, on a Tesla V100
+
 # if __name__ == '__main__':
 #     import sys
 #     import os
