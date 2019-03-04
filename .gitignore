@@ -113,3 +113,6 @@ data/
 # Default output directory
 output.tmp/
 experiments/output/
+
+# minor.
+*.vscode
