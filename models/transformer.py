@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn.parameter import Parameter
 
 from .bert import BertEncoder, BertConfig
+import torchvision.models as models
 
 MAX_WIDTH_HEIGHT = 500
 
@@ -29,15 +30,30 @@ class PositionalEncoding2D(nn.Module):
     nn.Embedding
 
 
+class ResBottom(nn.Module):
+    def __init__(self,origin_model, block_num=1):
+        super(ResBottom, self).__init__()
+        self.seq = nn.Sequential(*list(origin_model.children())[0:(4+block_num)])
+
+    def forward(self, batch):
+        return self.seq(batch)
+
+
 class BertImage(nn.Module):
     """
     Wrapper for a Bert encoder
     """
 
-    def __init__(self, config, num_classes):
+    def __init__(self, config, num_classes, with_resnet=True):
         super().__init__()
         # hard coded
-        num_channels_in = 3
+        self.with_resnet = with_resnet
+        if with_resnet:
+            res50 = models.resnet50(pretrained=True)
+            self.extract_feature = ResBottom(res50)
+            num_channels_in = 256
+        else:
+            num_channels_in = 3
         num_channels_out = 3
 
         self.hidden_size = config["hidden_size"]
@@ -60,13 +76,15 @@ class BertImage(nn.Module):
         self.cls_embedding.data.normal_(mean=0.0, std=0.01)  # TODO no hard coded
 
     def forward(self, batch_images, batch_mask=None):
+
+        if self.with_resnet:
+            batch_images = self.extract_feature(batch_images)
         batch_size, num_channels_in, width, height = batch_images.shape
 
         assert (
             width < self.positional_encoding.max_width_height
             and height < self.positional_encoding.max_width_height
         )
-
         # reshape from NCHW to NHWC
         batch_images = batch_images.permute(0, 2, 3, 1)
 
