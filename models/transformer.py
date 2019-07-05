@@ -4,6 +4,7 @@ from torch.nn.parameter import Parameter
 
 from .bert import BertEncoder, BertConfig
 import torchvision.models as models
+from torch.autograd import Variable
 
 MAX_WIDTH_HEIGHT = 500
 
@@ -27,7 +28,29 @@ class PositionalEncoding2D(nn.Module):
         batch_size, width, height, _ = X.shape
         return self.embeddings[:width, :height].unsqueeze(0)
 
-    nn.Embedding
+
+def positional_encodings_like(x, t=None):
+    if t is None:
+        positionsX = torch.arange(0, x.size(1)).float()
+        positionsY = torch.arange(0, x.size(2)).float()
+        if x.is_cuda:
+           positionsX = positionsX.cuda(x.get_device())
+           positionsY = positionsY.cuda(x.get_device())
+    else:
+        positionsX, positionsY = t
+    encodings = torch.zeros(*x.size()[1:])
+    if x.is_cuda:
+        encodings = encodings.cuda(x.get_device())
+
+
+    for channel in range(x.size(-1)):
+        if channel % 2 == 0:
+            encodings[:, channel] = torch.ger( torch.sin(positionsX / 10000 ** (channel / x.size(-1))),
+                                               torch.sin(positionsY / 10000 ** (channel / x.size(-1))))
+        else:
+            encodings[:, channel] = torch.ger(torch.cos(positionsX / 10000 ** ((channel - 1) / x.size(-1))),
+                                              torch.cos(positionsX / 10000 ** ((channel - 1) / x.size(-1))))
+    return Variable(encodings)
 
 
 class ResBottom(nn.Module):
@@ -60,7 +83,7 @@ class BertImage(nn.Module):
         bert_config = BertConfig.from_dict(config)
 
         self.upscale = nn.Linear(num_channels_in, self.hidden_size)
-        self.positional_encoding = PositionalEncoding2D(self.hidden_size, MAX_WIDTH_HEIGHT)
+        #self.positional_encoding = PositionalEncoding2D(self.hidden_size, MAX_WIDTH_HEIGHT)
 
         self.encoder = BertEncoder(bert_config)
         self.classifier = nn.Linear(self.hidden_size, num_classes)
@@ -78,6 +101,7 @@ class BertImage(nn.Module):
     def forward(self, batch_images, batch_mask=None):
 
         if self.with_resnet:
+            orig_resnet = self.extract_feature(batch_images)
             batch_images = self.extract_feature(batch_images)
         batch_size, num_channels_in, width, height = batch_images.shape
 
@@ -95,8 +119,9 @@ class BertImage(nn.Module):
             batch_images[~batch_mask] = self.mask_embedding
 
         # add positional embedding
-        batch_images += self.positional_encoding(batch_images)
-
+        #batch_images += self.positional_encoding(batch_images)
+        batch_images += positional_encodings_like(batch_images) # 2D sinusoidal position encoding
+        """
         # prepend classification token
         data = torch.cat(
             [
@@ -105,18 +130,20 @@ class BertImage(nn.Module):
             ],
             dim=1,
         )
+        """
 
         representations = self.encoder(
-            data, attention_mask=self.attention_mask, output_all_encoded_layers=False  # TODO
+            batch_images, attention_mask=self.attention_mask, output_all_encoded_layers=False  # TODO
         )[0]
 
         cls_representation = representations[:, 0]
         cls_prediction = self.classifier(cls_representation)
 
-        pix_representation = representations[:, 1:]
-        pix_output = self.pixelizer(pix_representation)
+        #pix_representation = representations[:, 1:]
+        pix_representation = representations
+        pix_output = self.pixelizer(pix_representation, batch_mask) # TODO: rewrite pixelizer using the mask
         pix_output = pix_output.reshape(batch_size, width, height, -1)
         # back to NCWH format
         pix_output = pix_output.permute(0, 3, 1, 2)
 
-        return cls_prediction, pix_output
+        return cls_prediction, pix_output, orig_resnet

@@ -307,7 +307,7 @@ class BertEmbeddings(nn.Module):
 
 
 class BertSelfAttentionDilation(nn.Module):
-    def __init__(self, config, output_attentions=False, keep_multihead_output=False, dilations=None):
+    def __init__(self, config, output_attentions=False, keep_multihead_output=False, dilations=None, kernel_size=5):
         super(BertSelfAttentionDilation, self).__init__()
         if config.hidden_size % config.num_attention_heads != 0:
             raise ValueError(
@@ -321,6 +321,7 @@ class BertSelfAttentionDilation(nn.Module):
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.dilations = dilations
+        self.kernel_size = kernel_size
 
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
@@ -343,7 +344,15 @@ class BertSelfAttentionDilation(nn.Module):
             query_layer = mixed_query_layer.view(*q_shape)
             key_layer = mixed_key_layer.view(*q_shape)
             value_layer = mixed_value_layer.view(*q_shape)
-            attention_probs, context_layer = dilated_attention(value_layer, query_layer, key_layer, dilation=self.dilations)
+            attention_probs_dil, context_layer_dil = dilated_attention(value_layer, query_layer, key_layer, dilation=self.dilations)
+            attention_probs_row, context_layer_row = dilated_attention(value_layer, query_layer, key_layer,
+                                                                       dilation=(1, value_layer.shape[2]))
+            attention_probs_col, context_layer_col = dilated_attention(value_layer, query_layer, key_layer,
+                                                                       dilation=( value_layer.shape[1],1))
+            attention_probs_local, context_layer_local = local_attention(value_layer, query_layer, key_layer,
+                                                                       self.kernel_size)
+
+            #TODO: Linear projection or weighted sum?
         else:
             query_layer = self.transpose_for_scores(mixed_query_layer)
             key_layer = self.transpose_for_scores(mixed_key_layer)
