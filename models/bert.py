@@ -326,6 +326,7 @@ class BertSelfAttentionDilation(nn.Module):
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
+        self.proj = nn.Linear(4*config.hidden_size, config.hidden_size)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
@@ -344,15 +345,17 @@ class BertSelfAttentionDilation(nn.Module):
             query_layer = mixed_query_layer.view(*q_shape)
             key_layer = mixed_key_layer.view(*q_shape)
             value_layer = mixed_value_layer.view(*q_shape)
-            attention_probs_dil, context_layer_dil = dilated_attention(value_layer, query_layer, key_layer, dilation=self.dilations)
-            attention_probs_row, context_layer_row = dilated_attention(value_layer, query_layer, key_layer,
+            context_layer_dil, attention_probs = dilated_attention(value_layer, query_layer, key_layer, dilation=self.dilations)
+            context_layer_row, attention_probs_row = dilated_attention(value_layer, query_layer, key_layer,
                                                                        dilation=(1, value_layer.shape[2]))
-            attention_probs_col, context_layer_col = dilated_attention(value_layer, query_layer, key_layer,
-                                                                       dilation=( value_layer.shape[1],1))
-            attention_probs_local, context_layer_local = local_attention(value_layer, query_layer, key_layer,
+            context_layer_col,attention_probs_col = dilated_attention(value_layer, query_layer, key_layer,
+                                                                       dilation=(value_layer.shape[1],1))
+            context_layer_local,attention_probs_local = local_attention(value_layer, query_layer, key_layer,
                                                                        self.kernel_size)
-
-            #TODO: Linear projection or weighted sum?
+            #print(context_layer_dil.shape, context_layer_local.shape, context_layer_row.shape)
+            context_layer_cat = torch.cat((context_layer_dil,context_layer_row,context_layer_col,context_layer_local),
+                                          dim=-1)
+            context_layer = self.proj(context_layer_cat) # linear projection back to hidden_size
         else:
             query_layer = self.transpose_for_scores(mixed_query_layer)
             key_layer = self.transpose_for_scores(mixed_key_layer)

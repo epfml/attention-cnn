@@ -98,29 +98,42 @@ class BertImage(nn.Module):
         self.mask_embedding.data.normal_(mean=0.0, std=0.01)
         self.cls_embedding.data.normal_(mean=0.0, std=0.01)  # TODO no hard coded
 
-    def forward(self, batch_images, batch_mask=None):
+    def forward(self, batch_images, batch_mask=None, feature_mask=None):
+
+        # reshape from NCHW to NHWC
+        batch_images_origin = batch_images
+        batch_images = batch_images.permute(0, 2, 3, 1)
+
+        if batch_mask is not None:
+            batch_images[~batch_mask] *= 0
+
+        batch_images = batch_images.permute(0, 3, 1, 2)
 
         if self.with_resnet:
-            orig_resnet = self.extract_feature(batch_images)
+            orig_resnet = self.extract_feature(batch_images_origin)
             batch_images = self.extract_feature(batch_images)
+
+
         batch_size, num_channels_in, width, height = batch_images.shape
 
         assert (
-            width < self.positional_encoding.max_width_height
-            and height < self.positional_encoding.max_width_height
+                width < self.positional_encoding.max_width_height
+                and height < self.positional_encoding.max_width_height
         )
-        # reshape from NCHW to NHWC
+
         batch_images = batch_images.permute(0, 2, 3, 1)
 
         batch_images = self.upscale(batch_images)
 
         # replace masked pixel with mask "embedding"
         if batch_mask is not None:
-            batch_images[~batch_mask] = self.mask_embedding
+            batch_images[~feature_mask] = self.mask_embedding
 
         # add positional embedding
         #batch_images += self.positional_encoding(batch_images)
         batch_images += positional_encodings_like(batch_images) # 2D sinusoidal position encoding
+
+        batch_images[:,0,0,:] = self.cls_embedding.expand(batch_size, 1, -1) # classification token
         """
         # prepend classification token
         data = torch.cat(
@@ -136,14 +149,16 @@ class BertImage(nn.Module):
             batch_images, attention_mask=self.attention_mask, output_all_encoded_layers=False  # TODO
         )[0]
 
-        cls_representation = representations[:, 0]
+        cls_representation = representations[:, 0, 0, :]
         cls_prediction = self.classifier(cls_representation)
 
         #pix_representation = representations[:, 1:]
         pix_representation = representations
-        pix_output = self.pixelizer(pix_representation, batch_mask) # TODO: rewrite pixelizer using the mask
+        pix_output = self.pixelizer(pix_representation) # TODO: rewrite pixelizer using the mask
         pix_output = pix_output.reshape(batch_size, width, height, -1)
         # back to NCWH format
         pix_output = pix_output.permute(0, 3, 1, 2)
-
-        return cls_prediction, pix_output, orig_resnet
+        if self.with_resnet:
+            return cls_prediction, pix_output, orig_resnet
+        else:
+            return cls_prediction, pix_output

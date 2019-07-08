@@ -13,14 +13,21 @@ def get_unfolded(tensor,kernel_size):
     """
     B, W, H, D = tensor.shape
     tensor = tensor.permute(0,3,1,2)
-    unf = nn.Unfold(kernel_size=kernel_size, dilation=1, padding=(kernel_size-1)/2, stride=1)
+    unf = nn.Unfold(kernel_size=kernel_size, dilation=1, padding=int((kernel_size-1)/2), stride=1)
     tensor_unf = unf(tensor)
     tensor_unf = tensor_unf.view((B, D, W, H , kernel_size, kernel_size))
     return tensor_unf
 
 
 def local_attention(V, Q, K, kernel_size=5):
+    """
 
+    :param V: of shape( batchsize, width, height, numberOfHeads, hidden_dim/numOfHeads)
+    :param Q:
+    :param K:
+    :param kernel_size:
+    :return: updated V of shape (batch_size, width, height, hidden_dim)
+    """
     # V shape: B x W x H x n_head x d_v
     # Q shape: B x W x H x n_head x d_k
     # K shape: B x W x H x n_head x d_k
@@ -47,7 +54,7 @@ def local_attention(V, Q, K, kernel_size=5):
     attention_shape = attention_coefficients.size()
     attention_coefficients = attention_coefficients.view(attention_shape[:-2] + (-1,))
     attention_probs = nn.Softmax(dim=-1)(attention_coefficients)
-    attention_coefficients = attenetion_probs.view(attention_shape)
+    attention_coefficients = attention_probs.view(attention_shape)
 
 
 
@@ -55,7 +62,8 @@ def local_attention(V, Q, K, kernel_size=5):
     # each pixel in block (x,y) and group (i,j) sums the values of
     # the pixes in group (i,j) at any other block position (v,w)
     new_V = torch.einsum("bwhnxy,bndwhxy->bwhnd", [attention_coefficients, V_field])
-    #new_V = new_V.contiguous().view(batch_size, width, height, n_nead, d_v)
+    #print(new_V.shape)
+    new_V = new_V.contiguous().view(batch_size, width, height, n_head* d_v)
     return new_V, attention_coefficients
 
 
