@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 
 
 def dilat(tensor, dilations):
@@ -37,7 +38,7 @@ def dilated_attention(V, Q, K, dilation=1):
     # V shape: B x W x H x n_head x d_v
     # Q shape: B x W x H x n_head x d_k
     # K shape: B x W x H x n_head x d_k
-    batch_size, width, height, n_nead, d_v = V.shape
+    batch_size, width, height, n_head, d_v = V.shape
     d_k = Q.shape[-1]
 
     # B x W/dil x dil x H/dil x dil x n_head x d
@@ -52,13 +53,21 @@ def dilated_attention(V, Q, K, dilation=1):
     # each pixel of block (x,y) in the group (i,j) attend pixel in same group in different blocks (v,w)
     # a dot product is done over the d dimension
     # the head and batch dimension are kept
-    attention_coefficients = torch.einsum("bxiyjhd,bviwjhd->bxiyjvwh", [Q_dilated, K_dilated])
+    attention_coefficients = torch.einsum("bxiyjhd,bviwjhd->bxiyjhvw", [Q_dilated, K_dilated])
+    #attention_coefficients = torch.einsum("bxiyjhd,bviwjhd->bxiyjvwh", [Q_dilated, K_dilated])
+    attention_shape = attention_coefficients.size()
+    attention_coefficients = attention_coefficients.view(attention_shape[:-2] + (-1,))
+    attention_probs = nn.Softmax(dim=-1)(attention_coefficients)
+    attention_coefficients = attention_probs.view(attention_shape)
+
+
 
     # the attention_coefficients are used to compute the weighted sum of the values
     # each pixel in block (x,y) and group (i,j) sums the values of
     # the pixes in group (i,j) at any other block position (v,w)
-    new_V = torch.einsum("bxiyjvwh,bviwjhd->bxiyjhd", [attention_coefficients, V_dilated])
-    new_V = new_V.contiguous().view(batch_size, width, height, n_nead, d_v)
+    new_V = torch.einsum("bxiyjhvw,bviwjhd->bxiyjhd", [attention_coefficients, V_dilated])
+    new_V = new_V.contiguous().view(batch_size, width, height, n_head*d_v)
+    #print(new_V.shape)
     return new_V, attention_coefficients
 
 
