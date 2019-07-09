@@ -33,7 +33,7 @@ from torch import nn
 from torch.nn import CrossEntropyLoss
 
 from .bert_utils import cached_path, WEIGHTS_NAME, CONFIG_NAME
-from dilated_attention import *
+from .dilated_attention import *
 
 logger = logging.getLogger(__name__)
 
