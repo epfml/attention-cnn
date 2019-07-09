@@ -53,6 +53,30 @@ def positional_encodings_like(x, t=None):
     return Variable(encodings)
 
 
+def positional_encodings_concat(x, t=None):
+    if t is None:
+        positionsX = torch.arange(0, x.size(1)).float().unsqueeze(-1).expand(-1, x.size(2))
+        positionsY = torch.arange(0, x.size(2)).float().unsqueeze(0).expand(x.size(1), -1)
+        if x.is_cuda:
+           positionsX = positionsX.cuda(x.get_device())
+           positionsY = positionsY.cuda(x.get_device())
+    else:
+        positionsX, positionsY = t
+    encodings = torch.zeros(*x.size()[1:])
+    if x.is_cuda:
+        encodings = encodings.cuda(x.get_device())
+
+    midchannel = int(x.size(-1)/2)
+    for channel in range(midchannel):
+        if channel % 2 == 0:
+            encodings[:, channel] = torch.sin(positionsX / 10000 ** (channel / midchannel))
+            encodings[:, channel+midchannel] = torch.sin(positionsY / 10000 ** (channel /midchannel))
+        else:
+            encodings[:, channel] = torch.sin(positionsX / 10000 ** (channel / midchannel))
+            encodings[:, channel + midchannel] = torch.sin(positionsY / 10000 ** (channel / midchannel))
+    return Variable(encodings)
+
+
 class ResBottom(nn.Module):
     def __init__(self,origin_model, block_num=1):
         super(ResBottom, self).__init__()
