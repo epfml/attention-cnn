@@ -51,7 +51,7 @@ def local_attention(V, Q, K, kernel_size=5):
     # each pixel of block (x,y) in the group (i,j) attend pixel in same group in different blocks (v,w)
     # a dot product is done over the d dimension
     # the head and batch dimension are kept
-    attention_coefficients = contract("bwhnd,bndwhxy->bwhnxy", Q, K_field)
+    attention_coefficients = contract("bwhnd,bndwhxy->bwhnxy", Q, K_field,backend='torch')
     #attention_coefficients = torch.einsum("bxiyjhd,bviwjhd->bxiyjvwh", [Q_dilated, K_dilated])
     attention_shape = attention_coefficients.size()
     attention_coefficients = attention_coefficients.view(attention_shape[:-2] + (-1,))
@@ -63,7 +63,7 @@ def local_attention(V, Q, K, kernel_size=5):
     # the attention_coefficients are used to compute the weighted sum of the values
     # each pixel in block (x,y) and group (i,j) sums the values of
     # the pixes in group (i,j) at any other block position (v,w)
-    new_V = contract("bwhnxy,bndwhxy->bwhnd", attention_coefficients, V_field)
+    new_V = contract("bwhnxy,bndwhxy->bwhnd", attention_coefficients, V_field,backend='torch')
     #print(new_V.shape)
     new_V = new_V.contiguous().view(batch_size, width, height, n_head* d_v)
     return new_V, attention_coefficients
