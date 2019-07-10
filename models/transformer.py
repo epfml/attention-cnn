@@ -14,6 +14,7 @@ MAX_WIDTH_HEIGHT = 500
 class PositionalEncodingType(Enum):
     Sinusoid2d = "Sinusoid2d"
     Learned = "Learned"
+    Relative = "Relative"
 
 
 def positional_encodings_like(x, t=None):
