@@ -2,15 +2,16 @@
 
 import os
 import time
+from enum import Enum
 
 import numpy as np
 import torch
 import torchvision
+from tqdm import tqdm
 
 import models
 import utils.accumulators
-
-from tqdm import tqdm
+from models.transformer import PositionalEncodingType
 
 config = dict(
     dataset="Cifar10",
@@ -39,6 +40,10 @@ config = dict(
     layer_norm_eps=1e-12,
     # BERT Image specific
     mask_dimension=5,
+    positional_encoding=PositionalEncodingType.Sinusoid2d,
+    attention_dilation=8,
+    attention_patch=5,
+    use_resnet=True,
 )
 
 
@@ -101,11 +106,21 @@ def main():
 
             # Compute gradients for the batch
             optimizer.zero_grad()
-            prediction, image_out = model(batch_x, batch_mask)
+
+            if config["use_resnet"]:
+                prediction, image_out, reconstruction, reconstruction_mask = model(
+                    batch_x, batch_mask
+                )
+            else:
+                prediction, image_out = model(batch_x, batch_mask)
+                reconstruction = batch_x
+                reconstruction_mask = batch_mask
+
             classification_loss = criterion(prediction, batch_y)
 
-            mask_selector = ~batch_mask.unsqueeze(1)
-            masked_input = torch.masked_select(batch_x, mask_selector)
+            # TODO check mask is 1 for keep and 0 for hide
+            mask_selector = ~reconstruction_mask.unsqueeze(1)
+            masked_input = torch.masked_select(reconstruction, mask_selector)
             masked_output = torch.masked_select(image_out, mask_selector)
 
             inpainting_loss = ((masked_input - masked_output) ** 2).mean()

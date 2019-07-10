@@ -33,7 +33,8 @@ from torch import nn
 from torch.nn import CrossEntropyLoss
 
 from .bert_utils import cached_path, WEIGHTS_NAME, CONFIG_NAME
-from .dilated_attention import *
+from .dilated_attention import dilated_attention
+from .local_attention import local_attention
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +176,9 @@ class BertConfig(object):
                  max_position_embeddings=512,
                  type_vocab_size=2,
                  initializer_range=0.02,
-                 layer_norm_eps=1e-12):
+                 layer_norm_eps=1e-12,
+                 attention_dilation=8,
+                 attention_patch=5):
         """Constructs BertConfig.
 
         Args:
@@ -220,6 +223,8 @@ class BertConfig(object):
             self.type_vocab_size = type_vocab_size
             self.initializer_range = initializer_range
             self.layer_norm_eps = layer_norm_eps
+            self.attention_dilation = attention_dilation
+            self.attention_patch = attention_patch
         else:
             raise ValueError("First argument must be either a vocabulary size (int)"
                              "or the path to a pretrained model config file (str)")
@@ -307,7 +312,7 @@ class BertEmbeddings(nn.Module):
 
 
 class BertSelfAttentionDilation(nn.Module):
-    def __init__(self, config, output_attentions=False, keep_multihead_output=False, dilations=None, kernel_size=5):
+    def __init__(self, config, output_attentions=False, keep_multihead_output=False):
         super(BertSelfAttentionDilation, self).__init__()
         if config.hidden_size % config.num_attention_heads != 0:
             raise ValueError(
@@ -320,8 +325,8 @@ class BertSelfAttentionDilation(nn.Module):
         self.num_attention_heads = config.num_attention_heads
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
-        self.dilations = dilations
-        self.kernel_size = kernel_size
+        self.dilations = (config.attention_dilation, config.attention_dilation)
+        self.kernel_size = config.attention_patch
 
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
@@ -336,25 +341,31 @@ class BertSelfAttentionDilation(nn.Module):
         return x.permute(0, 2, 1, 3)
 
     def forward(self, hidden_states, attention_mask, head_mask=None):
+        uses_image_attention = (len(hidden_states.shape) == 4)
+
         mixed_query_layer = self.query(hidden_states)
         mixed_key_layer = self.key(hidden_states)
         mixed_value_layer = self.value(hidden_states)
 
-        if self.dilations is not None:
+        if uses_image_attention:
+            _, height, width, _ = mixed_value_layer.shape
+
+            # reshape for multiple heads
             q_shape = mixed_query_layer.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
             query_layer = mixed_query_layer.view(*q_shape)
             key_layer = mixed_key_layer.view(*q_shape)
             value_layer = mixed_value_layer.view(*q_shape)
+
+            # dilated attention
             context_layer_dil, attention_probs = dilated_attention(value_layer, query_layer, key_layer, dilation=self.dilations)
-            context_layer_row, attention_probs_row = dilated_attention(value_layer, query_layer, key_layer,
-                                                                       dilation=(1, value_layer.shape[2]))
-            context_layer_col,attention_probs_col = dilated_attention(value_layer, query_layer, key_layer,
-                                                                       dilation=(value_layer.shape[1],1))
-            context_layer_local,attention_probs_local = local_attention(value_layer, query_layer, key_layer,
-                                                                       self.kernel_size)
-            #print(context_layer_dil.shape, context_layer_local.shape, context_layer_row.shape)
-            context_layer_cat = torch.cat((context_layer_dil,context_layer_row,context_layer_col,context_layer_local),
-                                          dim=-1)
+            # row wise attention
+            context_layer_row, attention_probs_row = dilated_attention(value_layer, query_layer, key_layer, dilation=(1, width))
+            # col wise attention
+            context_layer_col,attention_probs_col = dilated_attention(value_layer, query_layer, key_layer, dilation=(height,1))
+            # local patch attention
+            context_layer_local,attention_probs_local = local_attention(value_layer, query_layer, key_layer, self.kernel_size)
+
+            context_layer_cat = torch.cat((context_layer_dil,context_layer_row,context_layer_col,context_layer_local), dim=-1)
             context_layer = self.proj(context_layer_cat) # linear projection back to hidden_size
         else:
             query_layer = self.transpose_for_scores(mixed_query_layer)
@@ -473,7 +484,7 @@ class BertAttention(nn.Module):
     def __init__(self, config, output_attentions=False, keep_multihead_output=False):
         super(BertAttention, self).__init__()
         self.output_attentions = output_attentions
-        self.self = BertSelfAttention(config, output_attentions=output_attentions,
+        self.self = BertSelfAttentionDilation(config, output_attentions=output_attentions,
                                               keep_multihead_output=keep_multihead_output)
         self.output = BertSelfOutput(config)
 
@@ -941,8 +952,10 @@ class BertModel(BertPreTrainedModel):
                                       extended_attention_mask,
                                       output_all_encoded_layers=output_all_encoded_layers,
                                       head_mask=head_mask)
+
         if self.output_attentions:
             all_attentions, encoded_layers = encoded_layers
+
         sequence_output = encoded_layers[-1]
         pooled_output = self.pooler(sequence_output)
         if not output_all_encoded_layers:
