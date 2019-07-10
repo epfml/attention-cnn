@@ -12,6 +12,7 @@ from tqdm import tqdm
 import models
 import utils.accumulators
 from models.transformer import PositionalEncodingType
+from timer import Timer
 
 config = dict(
     dataset="Cifar10",
@@ -46,6 +47,8 @@ config = dict(
     use_resnet=True,
 )
 
+# Set timer
+timer = Timer(log_fn=print)
 
 output_dir = "./output.tmp"  # Can be overwritten by a script calling this
 
@@ -88,21 +91,32 @@ def main():
         # Update the optimizer's learning rate
         scheduler.step(epoch)
 
+        time_i = 0
+        loader_time_context = timer("loader")
+        loader_time_context.__enter__()
         for batch_x, batch_y in tqdm(training_loader):
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+            loader_time_context.__exit__(None, None, None)
+            with timer("move_to_device"):
+                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+
             batch_size, _, width, height = batch_x.shape
 
-            batch_mask = torch.ones([batch_size, width, height], dtype=torch.uint8)
-            mask_left = np.random.randint(0, width - config["mask_dimension"], size=(batch_size,))
-            mask_top = np.random.randint(0, height - config["mask_dimension"], size=(batch_size,))
-            for i in range(batch_size):
-                batch_mask[
-                    i,
-                    mask_left[i] : mask_left[i] + config["mask_dimension"],
-                    mask_top[i] : mask_top[i] + config["mask_dimension"],
-                ] = 0
+            with timer("mask"):
+                batch_mask = torch.ones([batch_size, width, height], dtype=torch.uint8)
+                mask_left = np.random.randint(
+                    0, width - config["mask_dimension"], size=(batch_size,)
+                )
+                mask_top = np.random.randint(
+                    0, height - config["mask_dimension"], size=(batch_size,)
+                )
+                for i in range(batch_size):
+                    batch_mask[
+                        i,
+                        mask_left[i] : mask_left[i] + config["mask_dimension"],
+                        mask_top[i] : mask_top[i] + config["mask_dimension"],
+                    ] = 0
 
-            batch_mask = batch_mask.to(device)
+                batch_mask = batch_mask.to(device)
 
             # Compute gradients for the batch
             optimizer.zero_grad()
@@ -116,27 +130,40 @@ def main():
                 reconstruction = batch_x
                 reconstruction_mask = batch_mask
 
-            classification_loss = criterion(prediction, batch_y)
+            with timer("loss"):
+                classification_loss = criterion(prediction, batch_y)
 
-            # TODO check mask is 1 for keep and 0 for hide
-            mask_selector = ~reconstruction_mask.unsqueeze(1)
-            masked_input = torch.masked_select(reconstruction, mask_selector)
-            masked_output = torch.masked_select(image_out, mask_selector)
+                # TODO check mask is 1 for keep and 0 for hide
+                mask_selector = ~reconstruction_mask.unsqueeze(1)
+                masked_input = torch.masked_select(reconstruction, mask_selector)
+                masked_output = torch.masked_select(image_out, mask_selector)
 
-            inpainting_loss = ((masked_input - masked_output) ** 2).mean()
+                inpainting_loss = ((masked_input - masked_output) ** 2).mean()
 
-            # TODO weighting of the two losses
-            loss = classification_loss + inpainting_loss
+                # TODO weighting of the two losses
+                loss = classification_loss + inpainting_loss
 
             acc = accuracy(prediction, batch_y)
-            loss.backward()
+
+            with timer("backward"):
+                loss.backward()
 
             # Do an optimizer step
-            optimizer.step()
+            with timer("weights_update"):
+                optimizer.step()
 
             # Store the statistics
             mean_train_loss.add(loss.item(), weight=len(batch_x))
             mean_train_accuracy.add(acc.item(), weight=len(batch_x))
+
+            time_i += 1
+            if time_i >= 10:
+                print(timer.summary())
+                print(model.timer.summary())
+                exit()
+
+            loader_time_context = timer("loader")
+            loader_time_context.__enter__()
 
         # Log training stats
         log_metric(
@@ -290,7 +317,7 @@ def get_model(device):
         "resnet50": lambda: models.ResNet50(num_classes=num_classes),
         "resnet101": lambda: models.ResNet101(num_classes=num_classes),
         "resnet152": lambda: models.ResNet152(num_classes=num_classes),
-        "bert": lambda: models.BertImage(config, num_classes=num_classes),
+        "bert": lambda: models.BertImage(config, num_classes=num_classes, timer=timer),
     }[config["model"]]()
 
     model.to(device)
