@@ -16,26 +16,6 @@ class PositionalEncodingType(Enum):
     Learned = "Learned"
 
 
-class PositionalEncoding2D(nn.Module):
-    """Would be more interesting to use sinusoids instead of learning these embeddings
-    """
-
-    def __init__(self, d, max_width_height):
-        super().__init__()
-        self.d = d
-        self.max_width_height = max_width_height
-        self.embeddings = Parameter(torch.zeros(max_width_height, max_width_height, d))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        self.embeddings.data.normal_(0.0, 1 / self.d)
-
-    def forward(self, X):
-        """X should be NWHC format"""
-        batch_size, width, height, _ = X.shape
-        return self.embeddings[:width, :height].unsqueeze(0)
-
-
 def positional_encodings_like(x, t=None):
     if t is None:
         positionsX = torch.arange(0, x.size(1)).float()
@@ -68,22 +48,26 @@ def positional_encodings_concat(x, t=None):
         positionsX = torch.arange(0, x.size(1)).float().unsqueeze(-1).expand(-1, x.size(2))
         positionsY = torch.arange(0, x.size(2)).float().unsqueeze(0).expand(x.size(1), -1)
         if x.is_cuda:
-           positionsX = positionsX.cuda(x.get_device())
-           positionsY = positionsY.cuda(x.get_device())
+            positionsX = positionsX.cuda(x.get_device())
+            positionsY = positionsY.cuda(x.get_device())
     else:
         positionsX, positionsY = t
     encodings = torch.zeros(*x.size()[1:])
     if x.is_cuda:
         encodings = encodings.cuda(x.get_device())
 
-    midchannel = int(x.size(-1)/2)
+    midchannel = int(x.size(-1) / 2)
     for channel in range(midchannel):
         if channel % 2 == 0:
             encodings[:, channel] = torch.sin(positionsX / 10000 ** (channel / midchannel))
-            encodings[:, channel+midchannel] = torch.sin(positionsY / 10000 ** (channel /midchannel))
+            encodings[:, channel + midchannel] = torch.sin(
+                positionsY / 10000 ** (channel / midchannel)
+            )
         else:
             encodings[:, channel] = torch.sin(positionsX / 10000 ** (channel / midchannel))
-            encodings[:, channel + midchannel] = torch.sin(positionsY / 10000 ** (channel / midchannel))
+            encodings[:, channel + midchannel] = torch.sin(
+                positionsY / 10000 ** (channel / midchannel)
+            )
     return Variable(encodings)
 
 
@@ -123,7 +107,6 @@ class BertImage(nn.Module):
 
         self.features_upscale = nn.Linear(num_channels_in, self.hidden_size)
         self.features_downscale = nn.Linear(self.hidden_size, num_channels_in)
-        # self.positional_encoding = PositionalEncoding2D(self.hidden_size, MAX_WIDTH_HEIGHT)
 
         self.encoder = BertEncoder(bert_config)
         self.classifier = nn.Linear(self.hidden_size, num_classes)
@@ -132,7 +115,7 @@ class BertImage(nn.Module):
 
         # positional encoding
         if self.positional_encoding_type == PositionalEncodingType.Learned:
-            positional_encoding = Parameter(
+            self.positional_encoding = Parameter(
                 torch.zeros(MAX_WIDTH_HEIGHT, MAX_WIDTH_HEIGHT, self.hidden_size)
             )
             # will be initialized randomly in reset_parameters
@@ -165,7 +148,7 @@ class BertImage(nn.Module):
         self.cls_embedding.data.normal_(mean=0.0, std=0.01)  # TODO no hard coded
 
         if self.positional_encoding_type == PositionalEncodingType.Learned:
-            self.embeddings.data.normal_(0.0, 1 / self.hidden_size)
+            self.positional_encoding.data.normal_(0.0, 1 / self.hidden_size)
 
     def positional_encodings_like(self, X):
         batch_size, width, height, channels = X.shape  # check channel order
@@ -210,7 +193,8 @@ class BertImage(nn.Module):
         batch_features = self.features_upscale(batch_features)
 
         # replace masked "pixels" by [MSK] token
-        batch_features[~feature_mask] = self.mask_embedding
+        if feature_mask is not None:
+            batch_features[~feature_mask] = self.mask_embedding
 
         # add positional embedding
         batch_size, num_channels_in, width, height = batch_features.shape

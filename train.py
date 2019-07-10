@@ -40,7 +40,7 @@ config = dict(
     layer_norm_eps=1e-12,
     # BERT Image specific
     mask_dimension=5,
-    positional_encoding=PositionalEncodingType.Sinusoid2d,
+    positional_encoding=PositionalEncodingType.Learned,
     attention_dilation=2,
     attention_patch=5,
     use_resnet=True,
