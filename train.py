@@ -22,7 +22,7 @@ config = dict(
     optimizer_learning_rate=0.1,
     optimizer_momentum=0.9,
     optimizer_weight_decay=0.0001,
-    batch_size=16,
+    batch_size=300,
     num_epochs=300,
     seed=42,
     # added for BERT, some are useless
@@ -41,7 +41,7 @@ config = dict(
     # BERT Image specific
     mask_dimension=5,
     positional_encoding=PositionalEncodingType.Sinusoid2d,
-    attention_dilation=8,
+    attention_dilation=2,
     attention_patch=5,
     use_resnet=True,
 )
