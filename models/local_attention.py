@@ -21,7 +21,7 @@ def get_unfolded(tensor,kernel_size):
     return tensor_unf
 
 
-def local_attention(V, Q, K, kernel_size=5):
+def local_attention(V, Q, K, R=None, kernel_size=5):
     """
 
     :param V: of shape( batchsize, width, height, numberOfHeads, hidden_dim/numOfHeads)
@@ -41,6 +41,10 @@ def local_attention(V, Q, K, kernel_size=5):
     d_k = Q.shape[-1]
 
     K_field = get_unfolded(K,kernel_size).view((batch_size, n_head, d_v, width, height, kernel_size, kernel_size))
+    # input R shape: kernel_size x kernel_size x d_v
+    if R is not None:
+        R = R.permute(0,5,6,1,2,3,4)
+        K_field = K_field + R
     V_field = get_unfolded(V,kernel_size).view((batch_size, n_head, d_v, width, height, kernel_size, kernel_size))
     #Q_field = get_unfolded(Q)
 
@@ -52,6 +56,8 @@ def local_attention(V, Q, K, kernel_size=5):
     # a dot product is done over the d dimension
     # the head and batch dimension are kept
     attention_coefficients = contract("bwhnd,bndwhxy->bwhnxy", Q, K_field,backend='torch')
+    if R is not None:
+        attention_coefficients= attention_coefficients + contract("bwhnd,xyd->bwhnxy", Q, R,backend='torch')
     #attention_coefficients = torch.einsum("bxiyjhd,bviwjhd->bxiyjvwh", [Q_dilated, K_dilated])
     attention_shape = attention_coefficients.size()
     attention_coefficients = attention_coefficients.view(attention_shape[:-2] + (-1,))

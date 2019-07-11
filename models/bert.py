@@ -53,6 +53,34 @@ PRETRAINED_MODEL_ARCHIVE_MAP = {
 BERT_CONFIG_NAME = 'bert_config.json'
 TF_WEIGHTS_NAME = 'model.ckpt'
 
+
+def generate_lookup(H,W,k):
+    lkup = torch.zeros((H,W,H,W), dtype=torch.long)
+    for xi in range(H):
+        for yi in range(W):
+            for xj in range(H):
+                for yj in range(W):
+                    difx = min(max(0,xi-xj+k), 2*k)
+                    dify = min(max(0,yi-yj+k), 2*k)
+                    lkup[xi][yi][xj][yj] = difx*k + dify
+
+    return lkup
+
+def generate_lookup_local(patch,k):
+    lkup = torch.zeros((patch,patch), dtype=torch.long)
+    mid = int((patch-1)/2)
+    for xi in range(patch):
+        for yi in range(patch):
+            difx = min(max(0,mid-xi+k), 2*k)
+            dify = min(max(0,mid-yi+k), 2*k)
+            lkup[xi][yi] = difx*k + dify
+
+    return lkup
+
+
+
+
+
 def prune_linear_layer(layer, index, dim=0):
     """ Prune a linear layer (a model parameters) to keep only entries in index.
         Return the pruned layer as a new layer with requires_grad=True.
@@ -178,7 +206,9 @@ class BertConfig(object):
                  initializer_range=0.02,
                  layer_norm_eps=1e-12,
                  attention_dilation=8,
-                 attention_patch=5):
+                 attention_patch=5,
+                 positional_encoding="Learned",
+                 positional_encoding_k=8):
         """Constructs BertConfig.
 
         Args:
@@ -225,6 +255,8 @@ class BertConfig(object):
             self.layer_norm_eps = layer_norm_eps
             self.attention_dilation = attention_dilation
             self.attention_patch = attention_patch
+            self.positional_encoding = positional_encoding
+            self.positional_encoding_k = positional_encoding_k
         else:
             raise ValueError("First argument must be either a vocabulary size (int)"
                              "or the path to a pretrained model config file (str)")
@@ -328,6 +360,18 @@ class BertSelfAttentionDilation(nn.Module):
         self.dilations = (config.attention_dilation, config.attention_dilation)
         self.kernel_size = config.attention_patch
 
+        self.positional_encoding = config.positional_encoding
+        # Relative positional encoding
+        if self.positional_encoding == "Relative":
+            self.positional_encoding_k = config.positional_encoding_k
+            pk = self.positional_encoding_k
+            self.num_pos_emb_2d = (2*pk+1)*(2*pk+1)
+            self.num_pos_emb_1d = (2*pk+1)
+            self.posEmbDil = nn.Embedding(self.num_pos_emb_2d, self.attention_head_size)
+            self.posEmbLocal = nn.Embedding(self.num_pos_emb_2d, self.attention_head_size)
+            self.posEmbRow = nn.Embedding(self.num_pos_emb_1d, self.attention_head_size)
+            self.posEmbCol = nn.Embedding(self.num_pos_emb_1d, self.attention_head_size)
+
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
@@ -340,7 +384,7 @@ class BertSelfAttentionDilation(nn.Module):
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
-    def forward(self, hidden_states, attention_mask, head_mask=None):
+    def forward(self, hidden_states, attention_mask, head_mask=None, embLookups=None):
         uses_image_attention = (len(hidden_states.shape) == 4)
 
         mixed_query_layer = self.query(hidden_states)
@@ -356,14 +400,28 @@ class BertSelfAttentionDilation(nn.Module):
             key_layer = mixed_key_layer.view(*q_shape)
             value_layer = mixed_value_layer.view(*q_shape)
 
+            if self.positional_encoding == "Relative":
+                #embLookupDil, embLookupRow, embLookupCol, embLookupLocal = embLookups
+                dilation, _ = self.dilations
+                embLookupDil=generate_lookup(height/dilation,width/dilation,self.positional_encoding_k)
+                embLookupRow=generate_lookup(height, 1,self.positional_encoding_k)
+                embLookupCol=generate_lookup(1,width,self.positional_encoding_k)
+                embLookupLocal = generate_lookup_local(self.kernel_size,self.positional_encoding_k)
+                R_dil = self.posEmbDil(embLookupDil)
+                R_row = self.posEmbRow(embLookupRow)
+                R_col = self.posEmbCol(embLookupCol)
+                R_local = self.posEmbLocal(embLookupLocal)
+            else:
+                R_dil=R_row=R_col=R_local=None
+
             # dilated attention
-            context_layer_dil, attention_probs = dilated_attention(value_layer, query_layer, key_layer, dilation=self.dilations)
+            context_layer_dil, attention_probs = dilated_attention(value_layer, query_layer, key_layer, dilation=self.dilations, R=R_dil)
             # row wise attention
-            context_layer_row, attention_probs_row = dilated_attention(value_layer, query_layer, key_layer, dilation=(1, width))
+            context_layer_row, attention_probs_row = dilated_attention(value_layer, query_layer, key_layer, dilation=(1, width),R=R_row)
             # col wise attention
-            context_layer_col,attention_probs_col = dilated_attention(value_layer, query_layer, key_layer, dilation=(height,1))
+            context_layer_col,attention_probs_col = dilated_attention(value_layer, query_layer, key_layer, dilation=(height,1),R=R_col)
             # local patch attention
-            context_layer_local,attention_probs_local = local_attention(value_layer, query_layer, key_layer, self.kernel_size)
+            context_layer_local,attention_probs_local = local_attention(value_layer, query_layer, key_layer,R_local, self.kernel_size)
 
             context_layer_cat = torch.cat((context_layer_dil,context_layer_row,context_layer_col,context_layer_local), dim=-1)
             context_layer = self.proj(context_layer_cat) # linear projection back to hidden_size

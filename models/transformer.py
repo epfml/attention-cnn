@@ -200,7 +200,8 @@ class BertImage(nn.Module):
         # add positional embedding
         batch_size, num_channels_in, width, height = batch_features.shape
         assert width < MAX_WIDTH_HEIGHT and height < MAX_WIDTH_HEIGHT
-        batch_features += self.positional_encodings_like(batch_features)
+        if not (self.positional_encoding_type==PositionalEncodingType.Relative):
+            batch_features += self.positional_encodings_like(batch_features)
 
         # replace classification token (top left pixel)
         batch_features[:, 0, 0, :] = self.cls_embedding.view(1, -1)
