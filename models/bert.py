@@ -36,6 +36,9 @@ from .bert_utils import cached_path, WEIGHTS_NAME, CONFIG_NAME
 from .dilated_attention import dilated_attention
 from .local_attention import local_attention
 
+from timer import default
+timer = default()
+
 logger = logging.getLogger(__name__)
 
 PRETRAINED_MODEL_ARCHIVE_MAP = {
@@ -375,7 +378,7 @@ class BertSelfAttentionDilation(nn.Module):
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
-        self.proj = nn.Linear(4*config.hidden_size, config.hidden_size)
+        self.proj = nn.Linear(3*config.hidden_size, config.hidden_size)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
@@ -415,16 +418,22 @@ class BertSelfAttentionDilation(nn.Module):
                 R_dil=R_row=R_col=R_local=None
 
             # dilated attention
-            context_layer_dil, attention_probs = dilated_attention(value_layer, query_layer, key_layer, dilation=self.dilations, R=R_dil)
+            with timer("attention_dilated"):
+                context_layer_dil, attention_probs = dilated_attention(value_layer, query_layer, key_layer, dilation=self.dilations, R=R_dil)
             # row wise attention
-            context_layer_row, attention_probs_row = dilated_attention(value_layer, query_layer, key_layer, dilation=(1, width),R=R_row)
+            with timer("attention_row"):
+                context_layer_row, attention_probs_row = dilated_attention(value_layer, query_layer, key_layer, dilation=(1, width),R=R_row)
             # col wise attention
-            context_layer_col,attention_probs_col = dilated_attention(value_layer, query_layer, key_layer, dilation=(height,1),R=R_col)
+            with timer("attention_col"):
+                context_layer_col,attention_probs_col = dilated_attention(value_layer, query_layer, key_layer, dilation=(height,1),R=R_col)
             # local patch attention
-            context_layer_local,attention_probs_local = local_attention(value_layer, query_layer, key_layer,R_local, self.kernel_size)
+            # with timer("attention_patch"):
+            # context_layer_local,attention_probs_local = local_attention(value_layer, query_layer, key_layer,R_local, self.kernel_size)
 
-            context_layer_cat = torch.cat((context_layer_dil,context_layer_row,context_layer_col,context_layer_local), dim=-1)
-            context_layer = self.proj(context_layer_cat) # linear projection back to hidden_size
+            with timer("output projection"):
+                context_layer_cat = torch.cat((context_layer_dil, context_layer_row, context_layer_col,  #context_layer_local
+                ), dim=-1)
+                context_layer = self.proj(context_layer_cat) # linear projection back to hidden_size
         else:
             query_layer = self.transpose_for_scores(mixed_query_layer)
             key_layer = self.transpose_for_scores(mixed_key_layer)
@@ -632,12 +641,13 @@ class BertEncoder(nn.Module):
         all_encoder_layers = []
         all_attentions = []
         for i, layer_module in enumerate(self.layer):
-            hidden_states = layer_module(hidden_states, attention_mask, head_mask[i] if head_mask is not None else None)
-            if self.output_attentions:
-                attentions, hidden_states = hidden_states
-                all_attentions.append(attentions)
-            if output_all_encoded_layers:
-                all_encoder_layers.append(hidden_states)
+            with timer(f"Bert layer {i}"):
+                hidden_states = layer_module(hidden_states, attention_mask, head_mask[i] if head_mask is not None else None)
+                if self.output_attentions:
+                    attentions, hidden_states = hidden_states
+                    all_attentions.append(attentions)
+                if output_all_encoded_layers:
+                    all_encoder_layers.append(hidden_states)
         if not output_all_encoded_layers:
             all_encoder_layers.append(hidden_states)
         if self.output_attentions:

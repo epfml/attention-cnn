@@ -8,6 +8,8 @@ import torchvision.models as models
 from torch.autograd import Variable
 from enum import Enum
 
+import timer
+
 MAX_WIDTH_HEIGHT = 500
 
 
@@ -86,11 +88,11 @@ class BertImage(nn.Module):
     Wrapper for a Bert encoder
     """
 
-    def __init__(self, config, num_classes, timer):
+    def __init__(self, config, num_classes):
         super().__init__()
         self.with_resnet = config["use_resnet"]
         self.positional_encoding_type = config["positional_encoding"]
-        self.timer = timer
+        self.timer = timer.default()
 
         if self.with_resnet:
             res50 = models.resnet50(pretrained=True)

@@ -126,3 +126,17 @@ class Timer:
         epoch = values["epoch"]
         duration = values["value"]
         print(f"Timer: {label:30s} @ {epoch:4.1f} - {duration:8.5f}s")
+
+
+_default_timer = None
+
+
+def default():
+    global _default_timer
+    if _default_timer is None:
+
+        def ignore(*args, **kwargs):
+            pass
+
+        _default_timer = Timer(log_fn=ignore)
+    return _default_timer
