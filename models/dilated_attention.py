@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from opt_einsum import contract
 
+
 def dilat(tensor, dilations):
     """
     tensor  (tensor): Tensor to be dilated
@@ -43,7 +44,7 @@ def dilated_attention(V, Q, K, R=None, dilation=1):
 
     #  R : W/dil x H/dil x W/dil x H/dil x d
     K_dilated = dilat(K, [None, x_dilation, y_dilation, None, None])
-    #if R is not None:
+    # if R is not None:
     #    K_dilated = K_dilated + R
     Q_dilated = dilat(Q, [None, x_dilation, y_dilation, None, None])
     V_dilated = dilat(V, [None, x_dilation, y_dilation, None, None])
@@ -55,23 +56,27 @@ def dilated_attention(V, Q, K, R=None, dilation=1):
     # each pixel of block (x,y) in the group (i,j) attend pixel in same group in different blocks (v,w)
     # a dot product is done over the d dimension
     # the head and batch dimension are kept
-    attention_coefficients = contract("bxiyjhd,bviwjhd->bxiyjhvw", Q_dilated, K_dilated,backend='torch')
+    attention_coefficients = contract(
+        "bxiyjhd,bviwjhd->bxiyjhvw", Q_dilated, K_dilated, backend="torch"
+    )
     if R is not None:
-        attention_coefficients= attention_coefficients + contract("bxiyjhd,xyvwd->bxiyjhvw", Q_dilated, R,backend='torch')
-    #attention_coefficients = torch.einsum("bxiyjhd,bviwjhd->bxiyjvwh", [Q_dilated, K_dilated])
+        attention_coefficients = attention_coefficients + contract(
+            "bxiyjhd,xyvwd->bxiyjhvw", Q_dilated, R, backend="torch"
+        )
+    # attention_coefficients = torch.einsum("bxiyjhd,bviwjhd->bxiyjvwh", [Q_dilated, K_dilated])
     attention_shape = attention_coefficients.size()
     attention_coefficients = attention_coefficients.view(attention_shape[:-2] + (-1,))
     attention_probs = nn.Softmax(dim=-1)(attention_coefficients)
     attention_coefficients = attention_probs.view(attention_shape)
 
-
-
     # the attention_coefficients are used to compute the weighted sum of the values
     # each pixel in block (x,y) and group (i,j) sums the values of
     # the pixes in group (i,j) at any other block position (v,w)
-    new_V = contract("bxiyjhvw,bviwjhd->bxiyjhd", attention_coefficients, V_dilated, backend='torch')
-    new_V = new_V.contiguous().view(batch_size, width, height, n_head*d_v)
-    #print(new_V.shape)
+    new_V = contract(
+        "bxiyjhvw,bviwjhd->bxiyjhd", attention_coefficients, V_dilated, backend="torch"
+    )
+    new_V = new_V.contiguous().view(batch_size, width, height, n_head * d_v)
+    # print(new_V.shape)
     return new_V, attention_coefficients
 
 
