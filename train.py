@@ -8,12 +8,13 @@ import numpy as np
 import torch
 import torchvision
 from tqdm import tqdm
-
+import argparse
 import models
 import utils.accumulators
 from models.transformer import PositionalEncodingType
 from timer import default
 from utils.data import MaskedDataset
+from tensorboardX import SummaryWriter
 
 timer = default()
 
@@ -62,6 +63,18 @@ def main():
     or import it as a module, override config and run main()
     :return: scalar of the best accuracy
     """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output_dir",
+                        default="./model_ckpt",
+                        type=str,
+                        help="The output directory where the model predictions and checkpoints will be written.")
+    parser.add_argument("--logname",
+                        default="",
+                        type=str,
+                        help="Name of the run for tensorboard")
+    args = parser.parse_args()
+    writer = SummaryWriter(logdir=(("./runs/" + args.logname) if args.logname != "" else None))
+
 
     # Set the seed
     torch.manual_seed(config["seed"])
@@ -79,6 +92,7 @@ def main():
 
     # We keep track of the best accuracy so far to store checkpoints
     best_accuracy_so_far = utils.accumulators.Max()
+    global_step = 0
 
     for epoch in range(config["num_epochs"]):
         print("Epoch {:03d}".format(epoch))
@@ -138,6 +152,20 @@ def main():
             with timer("weights_update"):
                 optimizer.step()
 
+            writer.add_scalar('classification_loss',
+                              classification_loss / config["batch_size"],
+                              global_step)
+            writer.add_scalar('inpainting_loss',
+                              inpainting_loss / config["batch_size"],
+                              global_step)
+            writer.add_scalar('combined_loss',
+                              loss / config["batch_size"],
+                              global_step)
+            writer.add_scalar('accuracy',
+                              acc,
+                              global_step)
+            global_step += 1
+
             # Store the statistics
             mean_train_loss.add(loss.item(), weight=len(batch_x))
             mean_train_accuracy.add(acc.item(), weight=len(batch_x))
@@ -183,6 +211,7 @@ def main():
     store_checkpoint(
         "final.checkpoint", model, config["num_epochs"] - 1, mean_test_accuracy.value()
     )
+    writer.close()
 
     print(timer.summary())
 
