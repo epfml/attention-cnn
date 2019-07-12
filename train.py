@@ -72,6 +72,10 @@ def main():
                         default="",
                         type=str,
                         help="Name of the run for tensorboard")
+    parser.add_argument("--display_period",
+                        default=3000,
+                        type=int,
+                        help="period of logging images to tensorboard")
     args = parser.parse_args()
     writer = SummaryWriter(logdir=(("./runs/" + args.logname) if args.logname != "" else None))
 
@@ -164,7 +168,12 @@ def main():
             writer.add_scalar('accuracy',
                               acc,
                               global_step)
+
             global_step += 1
+            if global_step % args.display_period ==0:
+                writer.add_image("input",batch_x, global_step)
+                writer.add_image("masked_input", masked_input, global_step)
+                writer.add_image("reconstruction", image_out, global_step)
 
             # Store the statistics
             mean_train_loss.add(loss.item(), weight=len(batch_x))
