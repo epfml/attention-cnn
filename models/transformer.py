@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
-
+import random
 from .bert import BertEncoder, BertConfig
 import torchvision.models as models
 from torch.autograd import Variable
@@ -176,7 +176,12 @@ class BertImage(nn.Module):
                 batch_features_unmasked = self.extract_feature(batch_images)
 
                 if batch_mask is not None:
-                    batch_images = batch_images * batch_mask.unsqueeze(1).float()
+                    temp = random.random()
+                    if temp > 0.1:
+                        batch_images = batch_images * batch_mask.unsqueeze(1).float()
+                        if temp < 0.2:
+                            batch_images = batch_images + (((-batch_mask.unsqueeze(1).float())+1)*torch.normal(mean=0.5,
+                                                                                    std=torch.ones(batch_images.shape)))
                     batch_features = self.extract_feature(batch_images)
                 else:
                     batch_features = batch_features_unmasked
