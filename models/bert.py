@@ -38,6 +38,8 @@ from .local_attention import local_attention
 
 from timer import default
 
+MAX_WIDTH_HEIGHT = 500
+
 timer = default()
 
 logger = logging.getLogger(__name__)
@@ -388,6 +390,14 @@ class BertSelfAttentionDilation(nn.Module):
             self.posEmbLocal = nn.Embedding(self.num_pos_emb_2d, self.attention_head_size)
             self.posEmbRow = nn.Embedding(self.num_pos_emb_1d, self.attention_head_size)
             self.posEmbCol = nn.Embedding(self.num_pos_emb_1d, self.attention_head_size)
+            self.embLookupDil = generate_lookup(
+                MAX_WIDTH_HEIGHT / config.attention_dilation, MAX_WIDTH_HEIGHT / config.attention_dilation,
+                self.positional_encoding_k
+            )
+            self.embLookupRow = generate_lookup(MAX_WIDTH_HEIGHT, 1, self.positional_encoding_k)
+            self.embLookupCol = generate_lookup(1, MAX_WIDTH_HEIGHT, self.positional_encoding_k)
+            self.embLookupLocal = generate_lookup_local(self.kernel_size, self.positional_encoding_k)
+
 
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
@@ -423,16 +433,14 @@ class BertSelfAttentionDilation(nn.Module):
             if self.positional_encoding == "Relative":
                 # embLookupDil, embLookupRow, embLookupCol, embLookupLocal = embLookups
                 dilation, _ = self.dilations
-                embLookupDil = generate_lookup(
-                    height / dilation, width / dilation, self.positional_encoding_k
-                )
-                embLookupRow = generate_lookup(height, 1, self.positional_encoding_k)
-                embLookupCol = generate_lookup(1, width, self.positional_encoding_k)
-                embLookupLocal = generate_lookup_local(self.kernel_size, self.positional_encoding_k)
+                embLookupDil = self.embLookupDil[0:(height / dilation), 0:(width / dilation),
+                               0:(height / dilation), 0:(width / dilation)]
+                embLookupRow = self.embLookupRow[0:height]
+                embLookupCol = self.embLookupCol[:, 0:width]
                 R_dil = self.posEmbDil(embLookupDil)
                 R_row = self.posEmbRow(embLookupRow)
                 R_col = self.posEmbCol(embLookupCol)
-                R_local = self.posEmbLocal(embLookupLocal)
+                R_local = self.posEmbLocal(self.embLookupLocal)
             else:
                 R_dil = R_row = R_col = R_local = None
 
