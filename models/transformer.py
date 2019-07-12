@@ -8,6 +8,8 @@ import torchvision.models as models
 from torch.autograd import Variable
 from enum import Enum
 
+import timer
+
 MAX_WIDTH_HEIGHT = 500
 
 
@@ -90,6 +92,7 @@ class BertImage(nn.Module):
         super().__init__()
         self.with_resnet = config["use_resnet"]
         self.positional_encoding_type = config["positional_encoding"]
+        self.timer = timer.default()
 
         if self.with_resnet:
             res50 = models.resnet50(pretrained=True)
@@ -167,31 +170,36 @@ class BertImage(nn.Module):
         """
         # compute ResNet features
         if self.with_resnet:
-            # replace masked pixels with 0, batch_images has NCHW format
-            batch_features_unmasked = self.extract_feature(batch_images)
 
-            if batch_mask is not None:
-                batch_images = batch_images * batch_mask.unsqueeze(1).float()
-                batch_features = self.extract_feature(batch_images)
-            else:
-                batch_features = batch_features_unmasked
+            with self.timer("resnet"):
+                # replace masked pixels with 0, batch_images has NCHW format
+                batch_features_unmasked = self.extract_feature(batch_images)
 
-            # downscale the mask
-            if batch_mask is not None:
-                # downsample the mask
-                # mask any downsampled pixel if it contained one masked pixel originialy
-                feature_mask = ~(
-                    F.max_pool2d((~batch_mask).float(), self.feature_downscale_factor).byte()
-                )
+                if batch_mask is not None:
+                    batch_images = batch_images * batch_mask.unsqueeze(1).float()
+                    batch_features = self.extract_feature(batch_images)
+                else:
+                    batch_features = batch_features_unmasked
+
+                # downscale the mask
+                if batch_mask is not None:
+                    # downsample the mask
+                    # mask any downsampled pixel if it contained one masked pixel originialy
+                    feature_mask = ~(
+                        F.max_pool2d((~batch_mask).float(), self.feature_downscale_factor).byte()
+                    )
         else:
             batch_features = batch_images
             feature_mask = batch_mask
 
         # reshape from NCHW to NHWC
-        batch_features = batch_features.permute(0, 2, 3, 1)
+
+        with self.timer("permute NCHW to NHWC"):
+            batch_features = batch_features.permute(0, 2, 3, 1)
 
         # feature upscale to BERT dimension
-        batch_features = self.features_upscale(batch_features)
+        with self.timer("upscale"):
+            batch_features = self.features_upscale(batch_features)
 
         # replace masked "pixels" by [MSK] token
         if feature_mask is not None:
@@ -206,18 +214,22 @@ class BertImage(nn.Module):
         # replace classification token (top left pixel)
         batch_features[:, 0, 0, :] = self.cls_embedding.view(1, -1)
 
-        representations = self.encoder(
-            batch_features,
-            attention_mask=self.attention_mask,
-            output_all_encoded_layers=False,  # TODO
-        )[0]
+        with self.timer("Bert encoder"):
+            representations = self.encoder(
+                batch_features,
+                attention_mask=self.attention_mask,
+                output_all_encoded_layers=False,  # TODO
+            )[0]
 
         cls_representation = representations[:, 0, 0, :]
         cls_prediction = self.classifier(cls_representation)
 
-        representations = self.features_downscale(representations)
-        # back to NCWH format
-        representations = representations.permute(0, 3, 1, 2)
+        with self.timer("downscale"):
+            representations = self.features_downscale(representations)
+
+        with self.timer("permute to NCWH"):
+            # back to NCWH format
+            representations = representations.permute(0, 3, 1, 2)
 
         if self.with_resnet:
             return cls_prediction, representations, batch_features_unmasked, feature_mask

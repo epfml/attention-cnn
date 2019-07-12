@@ -12,6 +12,10 @@ from tqdm import tqdm
 import models
 import utils.accumulators
 from models.transformer import PositionalEncodingType
+from timer import default
+from utils.data import MaskedDataset
+
+timer = default()
 
 config = dict(
     dataset="Cifar10",
@@ -23,13 +27,13 @@ config = dict(
     optimizer_momentum=0.9,
     optimizer_weight_decay=0.0001,
     batch_size=300,
-    num_epochs=300,
+    num_epochs=2,
     seed=42,
     # added for BERT, some are useless
     vocab_size_or_config_json_file=-1,
     hidden_size=128,  # 768,
-    num_hidden_layers=4,
-    num_attention_heads=4,
+    num_hidden_layers=2,
+    num_attention_heads=8,
     intermediate_size=512,
     hidden_act="gelu",
     hidden_dropout_prob=0.1,
@@ -89,21 +93,16 @@ def main():
         # Update the optimizer's learning rate
         scheduler.step(epoch)
 
-        for batch_x, batch_y in tqdm(training_loader):
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+        time_i = 0
+        loader_time_context = timer("loader")
+        loader_time_context.__enter__()
+        for batch_x, batch_y, batch_mask in tqdm(training_loader):
+            loader_time_context.__exit__(None, None, None)
+            with timer("move_to_device"):
+                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+                batch_mask = batch_mask.to(device)
+
             batch_size, _, width, height = batch_x.shape
-
-            batch_mask = torch.ones([batch_size, width, height], dtype=torch.uint8)
-            mask_left = np.random.randint(0, width - config["mask_dimension"], size=(batch_size,))
-            mask_top = np.random.randint(0, height - config["mask_dimension"], size=(batch_size,))
-            for i in range(batch_size):
-                batch_mask[
-                    i,
-                    mask_left[i] : mask_left[i] + config["mask_dimension"],
-                    mask_top[i] : mask_top[i] + config["mask_dimension"],
-                ] = 0
-
-            batch_mask = batch_mask.to(device)
 
             # Compute gradients for the batch
             optimizer.zero_grad()
@@ -117,27 +116,34 @@ def main():
                 reconstruction = batch_x
                 reconstruction_mask = batch_mask
 
-            classification_loss = criterion(prediction, batch_y)
+            with timer("loss"):
+                classification_loss = criterion(prediction, batch_y)
 
-            # TODO check mask is 1 for keep and 0 for hide
-            mask_selector = ~reconstruction_mask.unsqueeze(1)
-            masked_input = torch.masked_select(reconstruction, mask_selector)
-            masked_output = torch.masked_select(image_out, mask_selector)
+                # TODO check mask is 1 for keep and 0 for hide
+                mask_selector = ~reconstruction_mask.unsqueeze(1)
+                masked_input = torch.masked_select(reconstruction, mask_selector)
+                masked_output = torch.masked_select(image_out, mask_selector)
 
-            inpainting_loss = ((masked_input - masked_output) ** 2).mean()
+                inpainting_loss = ((masked_input - masked_output) ** 2).mean()
 
-            # TODO weighting of the two losses
-            loss = classification_loss + inpainting_loss
+                # TODO weighting of the two losses
+                loss = classification_loss + inpainting_loss
 
             acc = accuracy(prediction, batch_y)
-            loss.backward()
+
+            with timer("backward"):
+                loss.backward()
 
             # Do an optimizer step
-            optimizer.step()
+            with timer("weights_update"):
+                optimizer.step()
 
             # Store the statistics
             mean_train_loss.add(loss.item(), weight=len(batch_x))
             mean_train_accuracy.add(acc.item(), weight=len(batch_x))
+
+            loader_time_context = timer("loader")
+            loader_time_context.__enter__()
 
         # Log training stats
         log_metric(
@@ -154,7 +160,7 @@ def main():
             mean_test_loss = utils.accumulators.Mean()
             for batch_x, batch_y in test_loader:
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                prediction, _ = model(batch_x)
+                prediction = model(batch_x)[0]
                 loss = criterion(prediction, batch_y)
                 acc = accuracy(prediction, batch_y)
                 mean_test_loss.add(loss.item(), weight=len(batch_x))
@@ -177,6 +183,8 @@ def main():
     store_checkpoint(
         "final.checkpoint", model, config["num_epochs"] - 1, mean_test_accuracy.value()
     )
+
+    print(timer.summary())
 
     # Return the optimal accuracy, could be used for learning rate tuning
     return best_accuracy_so_far.value()
@@ -230,6 +238,7 @@ def get_dataset(test_batch_size=100, shuffle_train=True, num_workers=2, data_roo
     )
 
     training_set = dataset(root=data_root, train=True, download=True, transform=transform_train)
+    training_set = MaskedDataset(training_set, config["mask_dimension"])
     test_set = dataset(root=data_root, train=False, download=True, transform=transform_test)
 
     training_loader = torch.utils.data.DataLoader(
@@ -258,6 +267,8 @@ def get_optimizer(model_parameters):
             momentum=config["optimizer_momentum"],
             weight_decay=config["optimizer_weight_decay"],
         )
+    elif config["optimizer"] == "Adam":
+        optimizer = torch.optim.Adam(model_parameters, lr=config["optimizer_learning_rate"])
     else:
         raise ValueError("Unexpected value for optimizer")
 
