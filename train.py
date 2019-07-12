@@ -41,6 +41,7 @@ config = dict(
     # BERT Image specific
     mask_dimension=5,
     positional_encoding=PositionalEncodingType.Learned,
+    positional_encoding_k=8,
     attention_dilation=2,
     attention_patch=5,
     use_resnet=True,
