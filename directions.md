@@ -1,6 +1,7 @@
 # Directions for Bert on Images
 
-1. Scale up to bigger images: ImageNet, MIT Places
+1. Scale up to bigger images: ImageNet, MIT Places, COCO
+
 2. Unsupervised training:
 
 - Same Image Prediction (SIP): in the same idea as next sentence prediction,
@@ -9,11 +10,22 @@
 - Evaluate visually the reconstruction loss, _from last ablation study it seemed useless,
   maybe classification loss is too strong in supervised setting_.
 
-3. What should we evaluate against?
+3. Improve other task than classification (already done by [1]),
 
+- VQA (Visual Question Answering) or Image Inference (CLEVR)
 - Few shot learning with pretraining on ImageNet and finetuning on subset of ImageNet?
-- Restricted number of parameters?
-- VQA (Visual Question Answering) or Image Inference
+
+## Related Work
+
+[Attention Augmented Convolutional Networks](https://arxiv.org/pdf/1904.09925.pdf) [1]
+made meaningful contribution in using Attention on images (BERT style).
+They show that replacing CNN layers by attention performs well and allow to reduce the number of layers
+because receptive field is unbounded thanks to attention.
+Their positional encoding does not perform well in practice.
+Resource constrained setting.
+
+[Generative Modeling with Sparse Transformers](https://arxiv.org/pdf/1904.10509.pdf) [2](OpenAI)
+used sparse (row/column) transformer for inpainting.
 
 ## Improvements
 
@@ -24,3 +36,9 @@
 ### Misc
 
 - [ ] Print number of parameters in the model
+
+### Refs
+
+(1) [Attention Augmented Convolutional Networks](https://arxiv.org/pdf/1904.09925.pdf)
+
+(2) [Generative Modeling with Sparse Transformers](https://arxiv.org/pdf/1904.10509.pdf)
