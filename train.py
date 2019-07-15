@@ -87,6 +87,8 @@ def parse_cli_overides():
                 return new_value
             if type(old_value) is bool:
                 return new_value.lower() in ("yes", "true", "t", "1")
+            if old_value is None:
+                return new_value  # assume string
         except Exception:
             raise ValueError(f"Unable to parse config key '{key}' with value '{new_value}'")
 
@@ -124,11 +126,13 @@ def main():
         # we parse the parameters overides
         parse_cli_overides()
 
-    writer = (
-        SummaryWriter(logdir=f"./runs/{config['logname']}")
-        if config["logname"]
-        else DummySummaryWriter()
-    )
+
+    if config["logname"]:
+        logdir = f"./runs/{config['logname']}"
+        writer = SummaryWriter(logdir=logdir)
+        print(f"Tensorboard logs saved in '{logdir}'")
+    else:
+        writer = DummySummaryWriter()
 
     # Set the seed
     torch.manual_seed(config["seed"])
