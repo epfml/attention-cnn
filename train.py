@@ -28,7 +28,7 @@ config = dict(
     optimizer_momentum=0.9,
     optimizer_weight_decay=0.0001,
     batch_size=300,
-    num_epochs=2,
+    num_epochs=300,
     seed=42,
     # added for BERT, some are useless
     vocab_size_or_config_json_file=-1,
@@ -76,9 +76,30 @@ def main():
                         default=3000,
                         type=int,
                         help="period of logging images to tensorboard")
+    parser.add_argument("--classification_only",
+                        default=False,
+                        action='store_true',
+                        help="Not using inpainting loss")
+    parser.add_argument("--num_layers",
+                        default=2,
+                        type=int,
+                        help="number of transformer layers")
+    parser.add_argument("--batch_size",
+                        default=300,
+                        type=int,
+                        help="batch size")
+    parser.add_argument("--num_heads",
+                        default=8,
+                        type=int,
+                        help="number of attention heads")
+
     args = parser.parse_args()
     writer = SummaryWriter(logdir=(("./runs/" + args.logname) if args.logname != "" else None))
 
+
+    config["batch_size"] = args.batch_size
+    config["num_attention_heads"] = args.num_heads
+    config["num_hidden_layers"] = args.num_layers
 
     # Set the seed
     torch.manual_seed(config["seed"])
@@ -127,10 +148,10 @@ def main():
 
             if config["use_resnet"]:
                 prediction, image_out, reconstruction, reconstruction_mask = model(
-                    batch_x, batch_mask
+                    batch_x, batch_mask, device=device
                 )
             else:
-                prediction, image_out = model(batch_x, batch_mask)
+                prediction, image_out = model(batch_x, batch_mask,device=device)
                 reconstruction = batch_x
                 reconstruction_mask = batch_mask
 
@@ -145,7 +166,10 @@ def main():
                 inpainting_loss = ((masked_input - masked_output) ** 2).mean()
 
                 # TODO weighting of the two losses
-                loss = classification_loss + inpainting_loss
+                if args.classification_only:
+                    loss = classification_loss
+                else:
+                    loss = classification_loss + inpainting_loss
 
             acc = accuracy(prediction, batch_y)
 
@@ -170,10 +194,10 @@ def main():
                               global_step)
 
             global_step += 1
-            if global_step % args.display_period ==0:
-                writer.add_image("input",batch_x, global_step)
-                writer.add_image("masked_input", masked_input, global_step)
-                writer.add_image("reconstruction", image_out, global_step)
+            #if global_step % args.display_period ==0:
+                #writer.add_image("input",batch_x, global_step)
+                #writer.add_image("masked_input", masked_input, global_step)
+                #writer.add_image("reconstruction", image_out, global_step)
 
             # Store the statistics
             mean_train_loss.add(loss.item(), weight=len(batch_x))
@@ -197,19 +221,27 @@ def main():
             mean_test_loss = utils.accumulators.Mean()
             for batch_x, batch_y in test_loader:
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                prediction = model(batch_x)[0]
+                prediction = model(batch_x,device=device)[0]
                 loss = criterion(prediction, batch_y)
                 acc = accuracy(prediction, batch_y)
                 mean_test_loss.add(loss.item(), weight=len(batch_x))
                 mean_test_accuracy.add(acc.item(), weight=len(batch_x))
 
         # Log test stats
+        """
         log_metric(
             "accuracy", {"epoch": epoch, "value": mean_test_accuracy.value()}, {"split": "test"}
         )
         log_metric(
             "cross_entropy", {"epoch": epoch, "value": mean_test_loss.value()}, {"split": "test"}
         )
+        """
+        writer.add_scalar('eval_classification_loss',
+                          mean_test_loss.value(),
+                          epoch)
+        writer.add_scalar('eval_accuracy',
+                          mean_test_loss.value(),
+                          epoch)
 
         # Store checkpoints for the best model so far
         is_best_so_far = best_accuracy_so_far.add(mean_test_accuracy.value())

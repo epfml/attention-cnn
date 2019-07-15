@@ -158,7 +158,7 @@ class BertImage(nn.Module):
         batch_size, width, height, channels = X.shape  # check channel order
         return self.positional_encoding[:width, :height, :].unsqueeze(0)  # unsqueeze the batch size
 
-    def forward(self, batch_images, batch_mask=None, feature_mask=None):
+    def forward(self, batch_images, batch_mask=None, feature_mask=None, device=None):
 
         """
         Replace masked pixels with 0s
@@ -181,7 +181,7 @@ class BertImage(nn.Module):
                         batch_images = batch_images * batch_mask.unsqueeze(1).float()
                         if temp < 0.2:
                             batch_images = batch_images + (((-batch_mask.unsqueeze(1).float())+1)*torch.normal(mean=0.5,
-                                                                                    std=torch.ones(batch_images.shape)))
+                                                                                    std=torch.ones(batch_images.shape)).to(device))
                     batch_features = self.extract_feature(batch_images)
                 else:
                     batch_features = batch_features_unmasked
