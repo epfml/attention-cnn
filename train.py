@@ -240,7 +240,7 @@ def main():
                           mean_test_loss.value(),
                           epoch)
         writer.add_scalar('eval_accuracy',
-                          mean_test_loss.value(),
+                          mean_test_accuracy.value(),
                           epoch)
 
         # Store checkpoints for the best model so far
