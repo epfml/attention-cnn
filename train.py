@@ -22,7 +22,7 @@ config = OrderedDict(
     dataset="Cifar10",
     model="bert",
     optimizer="SGD",
-    optimizer_decay_at_epochs=[150, 250],
+    optimizer_decay_at_epochs=[80, 150],
     optimizer_decay_with_factor=10.0,
     optimizer_learning_rate=0.1,
     optimizer_momentum=0.9,
@@ -51,7 +51,7 @@ config = OrderedDict(
     attention_patch=5,
     use_resnet=True,
     classification_only=False,
-    inpainting_w = 1,
+    inpainting_w = 0.5,
     # logging specific
     logname=None,
 )
@@ -201,7 +201,7 @@ def main():
                 if config["classification_only"]:
                     loss = classification_loss
                 else:
-                    loss = classification_loss + (inpainting_loss*config["inpainting_w"])
+                    loss = classification_loss*(1-config["inpainting_w"]) + (inpainting_loss*config["inpainting_w"])
 
             acc = accuracy(prediction, batch_y)
 
