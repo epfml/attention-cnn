@@ -51,7 +51,10 @@ config = OrderedDict(
     attention_patch=5,
     use_resnet=True,
     classification_only=False,
+<<<<<<< HEAD
     inpainting_weight=1,
+=======
+>>>>>>> 85611b5d8f82b49c0fe88e327464be428e3369ff
     # logging specific
     logname=None,
 )
@@ -86,6 +89,11 @@ def parse_cli_overides():
                 return new_value
             if type(old_value) is bool:
                 return new_value.lower() in ("yes", "true", "t", "1")
+<<<<<<< HEAD
+=======
+            if old_value is None:
+                return new_value  # assume string
+>>>>>>> 85611b5d8f82b49c0fe88e327464be428e3369ff
         except Exception:
             raise ValueError(f"Unable to parse config key '{key}' with value '{new_value}'")
 
@@ -123,11 +131,21 @@ def main():
         # we parse the parameters overides
         parse_cli_overides()
 
+<<<<<<< HEAD
     writer = (
         SummaryWriter(logdir=f"./runs/{config['logname']}")
         if config["logname"]
         else DummySummaryWriter()
     )
+=======
+
+    if config["logname"]:
+        logdir = f"./runs/{config['logname']}"
+        writer = SummaryWriter(logdir=logdir)
+        print(f"Tensorboard logs saved in '{logdir}'")
+    else:
+        writer = DummySummaryWriter()
+>>>>>>> 85611b5d8f82b49c0fe88e327464be428e3369ff
 
     # Set the seed
     torch.manual_seed(config["seed"])
