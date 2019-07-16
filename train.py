@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import os
 import time
 from enum import Enum
@@ -15,14 +13,16 @@ from models.transformer import PositionalEncodingType
 from timer import default
 from utils.data import MaskedDataset
 from tensorboardX import SummaryWriter
+from collections import OrderedDict
+from termcolor import colored
 
 timer = default()
 
-config = dict(
+config = OrderedDict(
     dataset="Cifar10",
     model="bert",
     optimizer="SGD",
-    optimizer_decay_at_epochs=[150, 250],
+    optimizer_decay_at_epochs=[80, 150],
     optimizer_decay_with_factor=10.0,
     optimizer_learning_rate=0.1,
     optimizer_momentum=0.9,
@@ -50,10 +50,65 @@ config = dict(
     attention_dilation=2,
     attention_patch=5,
     use_resnet=True,
+    classification_only=False,
+    inpainting_weight=1,
+    # logging specific
+    logname=None,
 )
 
 
 output_dir = "./output.tmp"  # Can be overwritten by a script calling this
+
+
+def parse_cli_overides():
+    """
+    Parse args from CLI and override config dictionary entries
+    """
+    parser = argparse.ArgumentParser()
+    for key, value in config.items():
+        parser.add_argument(f"--{key}")
+    args = vars(parser.parse_args())
+
+    def print_config_override(key, old_value, new_value, first_config_overide):
+        if first_config_overide:
+            print(colored("Config overrides:", "red"))
+        print(f"     {key:25s} -> {new_value} (instead of {old_value})")
+
+    def cast_argument(key, old_value, new_value):
+        try:
+            if new_value is None:
+                return None
+            if type(old_value) is int:
+                return int(new_value)
+            if type(old_value) is float:
+                return float(new_value)
+            if type(old_value) is str:
+                return new_value
+            if type(old_value) is bool:
+                return new_value.lower() in ("yes", "true", "t", "1")
+        except Exception:
+            raise ValueError(f"Unable to parse config key '{key}' with value '{new_value}'")
+
+    first_config_overide = True
+    for key, original_value in config.items():
+        override_value = cast_argument(key, original_value, args[key])
+        if override_value is not None and override_value != original_value:
+            config[key] = override_value
+            print_config_override(key, original_value, override_value, first_config_overide)
+            first_config_overide = False
+
+
+class DummySummaryWriter:
+    """Mock a TensorboardX summary writer but does not do anything"""
+
+    def __init__(self):
+        def noop(*args, **kwargs):
+            pass
+
+        s = SummaryWriter()
+        for f in dir(s):
+            if not f.startswith("_"):
+                self.__setattr__(f, noop)
 
 
 def main():
@@ -63,43 +118,16 @@ def main():
     or import it as a module, override config and run main()
     :return: scalar of the best accuracy
     """
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output_dir",
-                        default="./model_ckpt",
-                        type=str,
-                        help="The output directory where the model predictions and checkpoints will be written.")
-    parser.add_argument("--logname",
-                        default="",
-                        type=str,
-                        help="Name of the run for tensorboard")
-    parser.add_argument("--display_period",
-                        default=3000,
-                        type=int,
-                        help="period of logging images to tensorboard")
-    parser.add_argument("--classification_only",
-                        default=False,
-                        action='store_true',
-                        help="Not using inpainting loss")
-    parser.add_argument("--num_layers",
-                        default=2,
-                        type=int,
-                        help="number of transformer layers")
-    parser.add_argument("--batch_size",
-                        default=300,
-                        type=int,
-                        help="batch size")
-    parser.add_argument("--num_heads",
-                        default=8,
-                        type=int,
-                        help="number of attention heads")
+    if __name__ == "__main__":
+        # if directly called from CLI (not as module)
+        # we parse the parameters overides
+        parse_cli_overides()
 
-    args = parser.parse_args()
-    writer = SummaryWriter(logdir=(("./runs/" + args.logname) if args.logname != "" else None))
-
-
-    config["batch_size"] = args.batch_size
-    config["num_attention_heads"] = args.num_heads
-    config["num_hidden_layers"] = args.num_layers
+    writer = (
+        SummaryWriter(logdir=f"./runs/{config['logname']}")
+        if config["logname"]
+        else DummySummaryWriter()
+    )
 
     # Set the seed
     torch.manual_seed(config["seed"])
@@ -151,7 +179,7 @@ def main():
                     batch_x, batch_mask, device=device
                 )
             else:
-                prediction, image_out = model(batch_x, batch_mask,device=device)
+                prediction, image_out = model(batch_x, batch_mask, device=device)
                 reconstruction = batch_x
                 reconstruction_mask = batch_mask
 
@@ -166,10 +194,10 @@ def main():
                 inpainting_loss = ((masked_input - masked_output) ** 2).mean()
 
                 # TODO weighting of the two losses
-                if args.classification_only:
+                if config["classification_only"]:
                     loss = classification_loss
                 else:
-                    loss = classification_loss + inpainting_loss
+                    loss = classification_loss + (inpainting_loss*config["inpainting_weight"])
 
             acc = accuracy(prediction, batch_y)
 
@@ -180,24 +208,20 @@ def main():
             with timer("weights_update"):
                 optimizer.step()
 
-            writer.add_scalar('classification_loss',
-                              classification_loss / config["batch_size"],
-                              global_step)
-            writer.add_scalar('inpainting_loss',
-                              inpainting_loss / config["batch_size"],
-                              global_step)
-            writer.add_scalar('combined_loss',
-                              loss / config["batch_size"],
-                              global_step)
-            writer.add_scalar('accuracy',
-                              acc,
-                              global_step)
+            writer.add_scalar(
+                "classification_loss", classification_loss / config["batch_size"], global_step
+            )
+            writer.add_scalar(
+                "inpainting_loss", inpainting_loss / config["batch_size"], global_step
+            )
+            writer.add_scalar("combined_loss", loss / config["batch_size"], global_step)
+            writer.add_scalar("accuracy", acc, global_step)
 
             global_step += 1
-            #if global_step % args.display_period ==0:
-                #writer.add_image("input",batch_x, global_step)
-                #writer.add_image("masked_input", masked_input, global_step)
-                #writer.add_image("reconstruction", image_out, global_step)
+            # if global_step % args.display_period ==0:
+            # writer.add_image("input",batch_x, global_step)
+            # writer.add_image("masked_input", masked_input, global_step)
+            # writer.add_image("reconstruction", image_out, global_step)
 
             # Store the statistics
             mean_train_loss.add(loss.item(), weight=len(batch_x))
@@ -221,27 +245,21 @@ def main():
             mean_test_loss = utils.accumulators.Mean()
             for batch_x, batch_y in test_loader:
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                prediction = model(batch_x,device=device)[0]
+                prediction = model(batch_x, device=device)[0]
                 loss = criterion(prediction, batch_y)
                 acc = accuracy(prediction, batch_y)
                 mean_test_loss.add(loss.item(), weight=len(batch_x))
                 mean_test_accuracy.add(acc.item(), weight=len(batch_x))
 
         # Log test stats
-        """
         log_metric(
             "accuracy", {"epoch": epoch, "value": mean_test_accuracy.value()}, {"split": "test"}
         )
         log_metric(
             "cross_entropy", {"epoch": epoch, "value": mean_test_loss.value()}, {"split": "test"}
         )
-        """
-        writer.add_scalar('eval_classification_loss',
-                          mean_test_loss.value(),
-                          epoch)
-        writer.add_scalar('eval_accuracy',
-                          mean_test_accuracy.value(),
-                          epoch)
+        writer.add_scalar("eval_classification_loss", mean_test_loss.value(), epoch)
+        writer.add_scalar("eval_accuracy", mean_test_accuracy.value(), epoch)
 
         # Store checkpoints for the best model so far
         is_best_so_far = best_accuracy_so_far.add(mean_test_accuracy.value())
