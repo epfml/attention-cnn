@@ -15,6 +15,7 @@ from utils.data import MaskedDataset
 from tensorboardX import SummaryWriter
 from collections import OrderedDict
 from termcolor import colored
+import yaml
 
 timer = default()
 
@@ -53,7 +54,8 @@ config = OrderedDict(
     classification_only=False,
     inpainting_w = 0.5,
     # logging specific
-    logname=None,
+    experiment_name=None,
+    output_dir="./output.tmp",
 )
 
 
@@ -126,8 +128,35 @@ def main():
         parse_cli_overides()
 
 
-    if config["logname"]:
-        logdir = f"./runs/{config['logname']}"
+    """
+    Directory structure:
+
+      output_dir
+      |-- experiment_name
+            |-- config.yaml
+            |-- best.checkpoint
+            |-- last.checkpoint
+      |-- 00_logdir
+            |-- experiment_name
+                |-- tensorboard logs...
+
+    If no `experiment_name` name is given, save output directly in `output_dir`
+    and does not log for tensorboard.
+    Point tensorboard to `00_logdir`.
+    """
+
+    global output_dir
+    output_dir = os.path.join(config["output_dir"], config["experiment_name"] or "")
+    os.makedirs(output_dir, exist_ok = True)
+    logdir = None
+    if config["experiment_name"]:
+        logdir = os.path.join(config["output_dir"], "00_logdir", config["experiment_name"])
+
+    # save config in YAML file
+    store_config()
+
+    # create tensorboard writter
+    if logdir:
         writer = SummaryWriter(logdir=logdir)
         print(f"Tensorboard logs saved in '{logdir}'")
     else:
@@ -213,13 +242,13 @@ def main():
                 optimizer.step()
 
             writer.add_scalar(
-                "classification_loss", classification_loss / config["batch_size"], global_step
+                "train/classification_loss", classification_loss / config["batch_size"], global_step
             )
             writer.add_scalar(
-                "inpainting_loss", inpainting_loss / config["batch_size"], global_step
+                "train/inpainting_loss", inpainting_loss / config["batch_size"], global_step
             )
-            writer.add_scalar("combined_loss", loss / config["batch_size"], global_step)
-            writer.add_scalar("accuracy", acc, global_step)
+            writer.add_scalar("train/loss", loss / config["batch_size"], global_step)
+            writer.add_scalar("train/accuracy", acc, global_step)
 
             global_step += 1
             # if global_step % args.display_period ==0:
@@ -262,8 +291,8 @@ def main():
         log_metric(
             "cross_entropy", {"epoch": epoch, "value": mean_test_loss.value()}, {"split": "test"}
         )
-        writer.add_scalar("eval_classification_loss", mean_test_loss.value(), epoch)
-        writer.add_scalar("eval_accuracy", mean_test_accuracy.value(), epoch)
+        writer.add_scalar("eval/classification_loss", mean_test_loss.value(), epoch)
+        writer.add_scalar("eval/accuracy", mean_test_accuracy.value(), epoch)
 
         # Store checkpoints for the best model so far
         is_best_so_far = best_accuracy_so_far.add(mean_test_accuracy.value())
@@ -403,6 +432,12 @@ def get_model(device):
         torch.backends.cudnn.benchmark = True
 
     return model
+
+
+def store_config():
+    path = os.path.join(output_dir, "config.yaml")
+    with open(path, "w") as f:
+        yaml.dump(dict(config), f, sort_keys=False)
 
 
 def store_checkpoint(filename, model, epoch, test_accuracy):
