@@ -35,7 +35,7 @@ used sparse (row/column) transformer for inpainting.
 
 ### Misc
 
-- [ ] Print number of parameters in the model
+- [x] Print number of parameters in the model
 
 ### Refs
 
