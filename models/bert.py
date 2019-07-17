@@ -668,7 +668,11 @@ class BertLayer(nn.Module):
         attention_output = self.attention(hidden_states, attention_mask, head_mask)
         if self.output_attentions:
             attentions, attention_output = attention_output
+        #print(attention_output.shape)
+        #print(self.intermediate.dense)
+        #print((name,para) for (name,para) in self.intermediate.dense.named_parameters())
         intermediate_output = self.intermediate(attention_output)
+        #print(intermediate_output.shape)
         layer_output = self.output(intermediate_output, attention_output)
         if self.output_attentions:
             return attentions, layer_output

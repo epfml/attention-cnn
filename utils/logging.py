@@ -2,6 +2,18 @@ import json
 import os
 
 
+def get_num_parameter(model, trainable=False):
+    if trainable:
+        paras = [(n, p) for (n,p) in model.named_parameters() if p.requires_grad]
+    else:
+        paras = [(n, p) for (n,p) in model.named_parameters()]
+
+    totalparas = sum(p.numel() for (n,p) in paras)
+    numparalist = [(n, p.numel()) for (n,p) in paras]
+
+    return totalparas, numparalist
+
+
 class JSONLogger:
     """
     Very simple prototype logger that will store the values to a JSON file

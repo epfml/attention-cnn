@@ -15,6 +15,7 @@ from utils.data import MaskedDataset
 from tensorboardX import SummaryWriter
 from collections import OrderedDict
 from termcolor import colored
+from utils.logging import get_num_parameter
 import yaml
 
 timer = default()
@@ -427,6 +428,11 @@ def get_model(device):
     }[config["model"]]()
 
     model.to(device)
+    totalnum, numlist = get_num_parameter(model, trainable=False)
+    print("total params: ", totalnum)
+    totalnum, numlist = get_num_parameter(model, trainable=True)
+    print("total trainable: ", totalnum)
+    print(numlist)
     if device == "cuda":
         model = torch.nn.DataParallel(model)
         torch.backends.cudnn.benchmark = True
