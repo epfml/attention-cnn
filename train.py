@@ -430,7 +430,7 @@ def get_model(device):
     model.to(device)
     totalnum, numlist = get_num_parameter(model, trainable=False)
     print("total params: ", totalnum)
-    totalnum, numlist = get_num_parameter(model, trainable=True)
+    totalnum, znumlist = get_num_parameter(model, trainable=True)
     print("total trainable: ", totalnum)
     print(numlist)
     if device == "cuda":

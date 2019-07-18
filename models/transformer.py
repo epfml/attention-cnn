@@ -17,6 +17,7 @@ class PositionalEncodingType(Enum):
     Sinusoid2d = "Sinusoid2d"
     Learned = "Learned"
     Relative = "Relative"
+    Nothing = "Nothing"
 
 
 def positional_encodings_like(x, t=None):
@@ -213,7 +214,7 @@ class BertImage(nn.Module):
         # add positional embedding
         batch_size, num_channels_in, width, height = batch_features.shape
         assert width < MAX_WIDTH_HEIGHT and height < MAX_WIDTH_HEIGHT
-        if not (self.positional_encoding_type==PositionalEncodingType.Relative):
+        if (not (self.positional_encoding_type==PositionalEncodingType.Relative)) and (not (self.positional_encoding_type==PositionalEncodingType.Nothing)):
             batch_features += self.positional_encodings_like(batch_features)
 
         # replace classification token (top left pixel)
