@@ -7,11 +7,9 @@ from .bert import BertEncoder, BertConfig
 import torchvision.models as models
 from torch.autograd import Variable
 from enum import Enum
-from .positional_encoding import PositionalEncodingType
+from .positional_encoding import PositionalEncodingType, PositionalEncoding
 
 import timer
-
-MAX_WIDTH_HEIGHT = 500
 
 
 class ResBottom(nn.Module):
@@ -30,9 +28,14 @@ class BertImage(nn.Module):
 
     def __init__(self, config, num_classes):
         super().__init__()
-        self.with_resnet = config["use_resnet"]
-        self.positional_encoding_type = config["positional_encoding"]
         self.timer = timer.default()
+
+        self.with_resnet = config["use_resnet"]
+        self.hidden_size = config["hidden_size"]
+
+        self.positional_encoding = PositionalEncoding(
+            config["positional_encoding"], self.hidden_size
+        )
 
         if self.with_resnet:
             res50 = models.resnet50(pretrained=True)
@@ -46,7 +49,6 @@ class BertImage(nn.Module):
         else:
             num_channels_in = 3
 
-        self.hidden_size = config["hidden_size"]
         bert_config = BertConfig.from_dict(config)
 
         self.features_upscale = nn.Linear(num_channels_in, self.hidden_size)
@@ -57,32 +59,6 @@ class BertImage(nn.Module):
         self.pixelizer = nn.Linear(self.hidden_size, 3)
         self.register_buffer("attention_mask", torch.tensor(1.0))
 
-        # positional encoding
-        if self.positional_encoding_type == PositionalEncodingType.Learned:
-            self.positional_encoding = Parameter(
-                torch.zeros(MAX_WIDTH_HEIGHT, MAX_WIDTH_HEIGHT, self.hidden_size)
-            )
-            # will be initialized randomly in reset_parameters
-        elif self.positional_encoding_type == PositionalEncodingType.Sinusoid2d:
-            # 2D positional endoding as 2D sinusoid of different frequencies
-            # coded as Vaswani et al. Attention is all you need
-            positional_encoding = torch.zeros(MAX_WIDTH_HEIGHT, MAX_WIDTH_HEIGHT, self.hidden_size)
-            assert (
-                self.hidden_size % 2 == 0
-            ), "hidden size should be even for half cos/sin positional encodings"
-            d = self.hidden_size // 2
-
-            r = torch.sqrt(
-                (
-                    torch.arange(MAX_WIDTH_HEIGHT).view(-1, 1) ** 2
-                    + torch.arange(MAX_WIDTH_HEIGHT).view(1, -1) ** 2
-                ).float()
-            )
-            wavelenghts = 10000 ** (torch.arange(d).float() / (d - 1)).view(1, 1, -1)
-            positional_encoding[:, :, :d] = torch.sin(r.unsqueeze(-1) / wavelenghts)
-            positional_encoding[:, :, d:] = torch.cos(r.unsqueeze(-1) / wavelenghts)
-            self.register_buffer("positional_encoding", positional_encoding)
-
         self.mask_embedding = Parameter(torch.zeros(self.hidden_size))
         self.cls_embedding = Parameter(torch.zeros(self.hidden_size))
         self.reset_parameters()
@@ -90,13 +66,6 @@ class BertImage(nn.Module):
     def reset_parameters(self):
         self.mask_embedding.data.normal_(mean=0.0, std=0.01)
         self.cls_embedding.data.normal_(mean=0.0, std=0.01)  # TODO no hard coded
-
-        if self.positional_encoding_type == PositionalEncodingType.Learned:
-            self.positional_encoding.data.normal_(0.0, 1 / self.hidden_size)
-
-    def positional_encodings_like(self, X):
-        batch_size, width, height, channels = X.shape  # check channel order
-        return self.positional_encoding[:width, :height, :].unsqueeze(0)  # unsqueeze the batch size
 
     def forward(self, batch_images, batch_mask=None, feature_mask=None, device=None):
 
@@ -155,12 +124,7 @@ class BertImage(nn.Module):
             batch_features[~feature_mask] = self.mask_embedding
 
         # add positional embedding
-        batch_size, num_channels_in, width, height = batch_features.shape
-        assert width < MAX_WIDTH_HEIGHT and height < MAX_WIDTH_HEIGHT
-        if (not (self.positional_encoding_type == PositionalEncodingType.Relative)) and (
-            not (self.positional_encoding_type == PositionalEncodingType.Nothing)
-        ):
-            batch_features += self.positional_encodings_like(batch_features)
+        batch_features = self.positional_encoding(batch_features)
 
         # replace classification token (top left pixel)
         batch_features[:, 0, 0, :] = self.cls_embedding.view(1, -1)
