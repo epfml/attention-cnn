@@ -8,6 +8,7 @@ import torchvision
 from tqdm import tqdm
 import argparse
 import models
+from utils.learning_rate import linear_warmup_cosine_lr_scheduler
 import utils.accumulators
 from models.transformer import PositionalEncodingType
 from timer import default
@@ -24,7 +25,9 @@ config = OrderedDict(
     dataset="Cifar10",
     model="bert",
     optimizer="SGD",
-    optimizer_decay_at_epochs=[80, 150],
+    optimizer_warmup_ratio=0.05,  # period of linear increase for lr scheduler
+    optimizer_cosine_lr=False,
+    optimizer_decay_at_epochs=[80, 150, 250],
     optimizer_decay_with_factor=10.0,
     optimizer_learning_rate=0.1,
     optimizer_momentum=0.9,
@@ -141,7 +144,7 @@ def main():
             |-- experiment_name
                 |-- tensorboard logs...
 
-    If no `experiment_name` name is given, save output directly in `output_dir`
+    If no `experiment_name` is given, save output directly in `output_dir`
     and does not log for tensorboard.
     Point tensorboard to `00_logdir`.
     """
@@ -158,7 +161,7 @@ def main():
 
     # create tensorboard writter
     if logdir:
-        writer = SummaryWriter(logdir=logdir)
+        writer = SummaryWriter(logdir=logdir, max_queue=100, flush_secs=10)
         print(f"Tensorboard logs saved in '{logdir}'")
     else:
         writer = DummySummaryWriter()
@@ -174,7 +177,8 @@ def main():
     # `config` dictionary.
     training_loader, test_loader = get_dataset(test_batch_size=config["batch_size"])
     model = get_model(device)
-    optimizer, scheduler = get_optimizer(model.parameters())
+    max_steps = config["num_epochs"] * (len(training_loader.dataset) // config["batch_size"] + 1)
+    optimizer, scheduler = get_optimizer(model.parameters(), max_steps)
     criterion = torch.nn.CrossEntropyLoss()
 
     # We keep track of the best accuracy so far to store checkpoints
@@ -187,17 +191,19 @@ def main():
         # Enable training mode (automatic differentiation + batch norm)
         model.train()
 
+        # Update the optimizer's learning rate
+        scheduler.step(global_step)
+        writer.add_scalar("train/lr", scheduler.get_lr()[0], global_step)
+
         # Keep track of statistics during training
         mean_train_accuracy = utils.accumulators.Mean()
         mean_train_loss = utils.accumulators.Mean()
-
-        # Update the optimizer's learning rate
-        scheduler.step(epoch)
 
         time_i = 0
         loader_time_context = timer("loader")
         loader_time_context.__enter__()
         for batch_x, batch_y, batch_mask in tqdm(training_loader):
+
             loader_time_context.__exit__(None, None, None)
             with timer("move_to_device"):
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
@@ -300,6 +306,8 @@ def main():
         if is_best_so_far:
             store_checkpoint("best.checkpoint", model, epoch, mean_test_accuracy.value())
 
+        writer.flush()
+
     # Store a final checkpoint
     store_checkpoint(
         "final.checkpoint", model, config["num_epochs"] - 1, mean_test_accuracy.value()
@@ -376,7 +384,7 @@ def get_dataset(test_batch_size=100, shuffle_train=True, num_workers=2, data_roo
     return training_loader, test_loader
 
 
-def get_optimizer(model_parameters):
+def get_optimizer(model_parameters, max_steps):
     """
     Create an optimizer for a given model
     :param model_parameters: a list of parameters to be trained
@@ -394,11 +402,15 @@ def get_optimizer(model_parameters):
     else:
         raise ValueError("Unexpected value for optimizer")
 
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer,
-        milestones=config["optimizer_decay_at_epochs"],
-        gamma=1.0 / config["optimizer_decay_with_factor"],
-    )
+    if config['optimizer_cosine_lr']:
+        scheduler = linear_warmup_cosine_lr_scheduler(optimizer, config["optimizer_warmup_ratio"], max_steps)
+
+    else:
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer,
+            milestones=config["optimizer_decay_at_epochs"],
+            gamma=1.0 / config["optimizer_decay_with_factor"],
+        )
 
     return optimizer, scheduler
 
