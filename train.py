@@ -56,7 +56,7 @@ config = OrderedDict(
     attention_patch=5,
     use_resnet=True,
     classification_only=False,
-    inpainting_w = 0.5,
+    inpainting_w=0.5,
     # logging specific
     experiment_name=None,
     output_dir="./output.tmp",
@@ -131,7 +131,6 @@ def main():
         # we parse the parameters overides
         parse_cli_overides()
 
-
     """
     Directory structure:
 
@@ -151,7 +150,7 @@ def main():
 
     global output_dir
     output_dir = os.path.join(config["output_dir"], config["experiment_name"] or "")
-    os.makedirs(output_dir, exist_ok = True)
+    os.makedirs(output_dir, exist_ok=True)
     logdir = None
     if config["experiment_name"]:
         logdir = os.path.join(config["output_dir"], "00_logdir", config["experiment_name"])
@@ -237,7 +236,9 @@ def main():
                 if config["classification_only"]:
                     loss = classification_loss
                 else:
-                    loss = classification_loss*(1-config["inpainting_w"]) + (inpainting_loss*config["inpainting_w"])
+                    loss = classification_loss * (1 - config["inpainting_w"]) + (
+                        inpainting_loss * config["inpainting_w"]
+                    )
 
             acc = accuracy(prediction, batch_y)
 
@@ -402,8 +403,10 @@ def get_optimizer(model_parameters, max_steps):
     else:
         raise ValueError("Unexpected value for optimizer")
 
-    if config['optimizer_cosine_lr']:
-        scheduler = linear_warmup_cosine_lr_scheduler(optimizer, config["optimizer_warmup_ratio"], max_steps)
+    if config["optimizer_cosine_lr"]:
+        scheduler = linear_warmup_cosine_lr_scheduler(
+            optimizer, config["optimizer_warmup_ratio"], max_steps
+        )
 
     else:
         scheduler = torch.optim.lr_scheduler.MultiStepLR(
