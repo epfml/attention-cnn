@@ -263,10 +263,6 @@ def main():
             writer.add_scalar("train/accuracy", acc, global_step)
 
             global_step += 1
-            # if global_step % args.display_period ==0:
-            # writer.add_image("input",batch_x, global_step)
-            # writer.add_image("masked_input", masked_input, global_step)
-            # writer.add_image("reconstruction", image_out, global_step)
 
             # Store the statistics
             mean_train_loss.add(loss.item(), weight=len(batch_x))
