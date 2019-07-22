@@ -14,61 +14,6 @@ import timer
 MAX_WIDTH_HEIGHT = 500
 
 
-def positional_encodings_like(x, t=None):
-    if t is None:
-        positionsX = torch.arange(0, x.size(1)).float()
-        positionsY = torch.arange(0, x.size(2)).float()
-        if x.is_cuda:
-            positionsX = positionsX.cuda(x.get_device())
-            positionsY = positionsY.cuda(x.get_device())
-    else:
-        positionsX, positionsY = t
-    encodings = torch.zeros(*x.size()[1:])
-    if x.is_cuda:
-        encodings = encodings.cuda(x.get_device())
-
-    for channel in range(x.size(-1)):
-        if channel % 2 == 0:
-            encodings[:, channel] = torch.ger(
-                torch.sin(positionsX / 10000 ** (channel / x.size(-1))),
-                torch.sin(positionsY / 10000 ** (channel / x.size(-1))),
-            )
-        else:
-            encodings[:, channel] = torch.ger(
-                torch.cos(positionsX / 10000 ** ((channel - 1) / x.size(-1))),
-                torch.cos(positionsX / 10000 ** ((channel - 1) / x.size(-1))),
-            )
-    return Variable(encodings)
-
-
-def positional_encodings_concat(x, t=None):
-    if t is None:
-        positionsX = torch.arange(0, x.size(1)).float().unsqueeze(-1).expand(-1, x.size(2))
-        positionsY = torch.arange(0, x.size(2)).float().unsqueeze(0).expand(x.size(1), -1)
-        if x.is_cuda:
-            positionsX = positionsX.cuda(x.get_device())
-            positionsY = positionsY.cuda(x.get_device())
-    else:
-        positionsX, positionsY = t
-    encodings = torch.zeros(*x.size()[1:])
-    if x.is_cuda:
-        encodings = encodings.cuda(x.get_device())
-
-    midchannel = int(x.size(-1) / 2)
-    for channel in range(midchannel):
-        if channel % 2 == 0:
-            encodings[:, channel] = torch.sin(positionsX / 10000 ** (channel / midchannel))
-            encodings[:, channel + midchannel] = torch.sin(
-                positionsY / 10000 ** (channel / midchannel)
-            )
-        else:
-            encodings[:, channel] = torch.sin(positionsX / 10000 ** (channel / midchannel))
-            encodings[:, channel + midchannel] = torch.sin(
-                positionsY / 10000 ** (channel / midchannel)
-            )
-    return Variable(encodings)
-
-
 class ResBottom(nn.Module):
     def __init__(self, origin_model, block_num=1):
         super(ResBottom, self).__init__()
@@ -175,8 +120,12 @@ class BertImage(nn.Module):
                     if temp > 0.1:
                         batch_images = batch_images * batch_mask.unsqueeze(1).float()
                         if temp < 0.2:
-                            batch_images = batch_images + (((-batch_mask.unsqueeze(1).float())+1)*torch.normal(mean=0.5,
-                                                                                    std=torch.ones(batch_images.shape)).to(device))
+                            batch_images = batch_images + (
+                                ((-batch_mask.unsqueeze(1).float()) + 1)
+                                * torch.normal(mean=0.5, std=torch.ones(batch_images.shape)).to(
+                                    device
+                                )
+                            )
                     batch_features = self.extract_feature(batch_images)
                 else:
                     batch_features = batch_features_unmasked
@@ -208,7 +157,9 @@ class BertImage(nn.Module):
         # add positional embedding
         batch_size, num_channels_in, width, height = batch_features.shape
         assert width < MAX_WIDTH_HEIGHT and height < MAX_WIDTH_HEIGHT
-        if (not (self.positional_encoding_type==PositionalEncodingType.Relative)) and (not (self.positional_encoding_type==PositionalEncodingType.Nothing)):
+        if (not (self.positional_encoding_type == PositionalEncodingType.Relative)) and (
+            not (self.positional_encoding_type == PositionalEncodingType.Nothing)
+        ):
             batch_features += self.positional_encodings_like(batch_features)
 
         # replace classification token (top left pixel)
