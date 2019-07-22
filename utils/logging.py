@@ -4,14 +4,14 @@ import os
 
 def get_num_parameter(model, trainable=False):
     if trainable:
-        paras = [(n, p) for (n,p) in model.named_parameters() if p.requires_grad]
+        params = [(n, p) for (n,p) in model.named_parameters() if p.requires_grad]
     else:
-        paras = [(n, p) for (n,p) in model.named_parameters()]
+        params = [(n, p) for (n,p) in model.named_parameters()]
 
-    totalparas = sum(p.numel() for (n,p) in paras)
-    numparalist = [(n, p.numel()) for (n,p) in paras]
+    total_params = sum(p.numel() for (n,p) in params)
+    num_param_list = [(n, p.numel()) for (n,p) in params]
 
-    return totalparas, numparalist
+    return total_params, num_param_list
 
 
 class JSONLogger:
