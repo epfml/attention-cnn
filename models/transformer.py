@@ -66,6 +66,7 @@ class BertImage(nn.Module):
     def reset_parameters(self):
         self.mask_embedding.data.normal_(mean=0.0, std=0.01)
         self.cls_embedding.data.normal_(mean=0.0, std=0.01)  # TODO no hard coded
+        self.positional_encoding.reset_parameters()
 
     def random_masking(self, batch_images, batch_mask, device):
         """
@@ -77,6 +78,8 @@ class BertImage(nn.Module):
         :param device:
         :return: masked image
         """
+        return batch_images
+        # TODO disabled
         temp = random.random()
         if temp > 0.1:
             batch_images = batch_images * batch_mask.unsqueeze(1).float()

@@ -59,6 +59,7 @@ config = OrderedDict(
     classification_only=False,
     inpainting_w=0.5,
     # logging specific
+    display_time=False,  # show timer after 1 epoch and stop
     experiment_name=None,
     output_dir="./output.tmp",
 )
@@ -309,13 +310,16 @@ def main():
 
         writer.flush()
 
+        if config["display_time"]:
+            print(timer.summary())
+            exit()
+
     # Store a final checkpoint
     store_checkpoint(
         "final.checkpoint", model, config["num_epochs"] - 1, mean_test_accuracy.value()
     )
     writer.close()
 
-    print(timer.summary())
 
     # Return the optimal accuracy, could be used for learning rate tuning
     return best_accuracy_so_far.value()
@@ -443,11 +447,10 @@ def get_model(device):
     }[config["model"]]()
 
     # compute number of parameters
-    totalnum, numlist = get_num_parameter(model, trainable=False)
-    print("total params: ", totalnum)
-    totalnum, znumlist = get_num_parameter(model, trainable=True)
-    print("total trainable: ", totalnum)
-    print(numlist)
+    num_params, _ = get_num_parameter(model, trainable=False)
+    print("Number of parameters: ", num_params)
+    num_trainable_params, _ = get_num_parameter(model, trainable=True)
+    print("Number of trainable parameters: ", num_trainable_params)
 
     model.to(device)
     if device == "cuda":
