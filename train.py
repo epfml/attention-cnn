@@ -446,12 +446,14 @@ def get_model(device):
         "bert": lambda: models.BertImage(config, num_classes=num_classes),
     }[config["model"]]()
 
-    model.to(device)
+    # compute number of parameters
     totalnum, numlist = get_num_parameter(model, trainable=False)
     print("total params: ", totalnum)
     totalnum, znumlist = get_num_parameter(model, trainable=True)
     print("total trainable: ", totalnum)
     print(numlist)
+
+    model.to(device)
     if device == "cuda":
         model = torch.nn.DataParallel(model)
         torch.backends.cudnn.benchmark = True
