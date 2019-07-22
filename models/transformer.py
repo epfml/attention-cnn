@@ -67,6 +67,27 @@ class BertImage(nn.Module):
         self.mask_embedding.data.normal_(mean=0.0, std=0.01)
         self.cls_embedding.data.normal_(mean=0.0, std=0.01)  # TODO no hard coded
 
+    def random_masking(self, batch_images, batch_mask, device):
+        """
+        with probability 10% we keep the image unchanged;
+        with probability 10% we change the mask region to a normal distribution
+        with 80% we mask the region as 0.
+        :param batch_images: image to be masked
+        :param batch_mask: mask region
+        :param device:
+        :return: masked image
+        """
+        temp = random.random()
+        if temp > 0.1:
+            batch_images = batch_images * batch_mask.unsqueeze(1).float()
+            if temp < 0.2:
+                batch_images = batch_images + (((-batch_mask.unsqueeze(1).float()) + 1) * torch.normal(mean=0.5,
+                                                                                                       std=torch.ones(
+                                                                                                           batch_images.shape)).to(
+                    device))
+        return batch_images
+
+
     def forward(self, batch_images, batch_mask=None, feature_mask=None, device=None):
 
         """
@@ -85,16 +106,7 @@ class BertImage(nn.Module):
                 batch_features_unmasked = self.extract_feature(batch_images)
 
                 if batch_mask is not None:
-                    temp = random.random()
-                    if temp > 0.1:
-                        batch_images = batch_images * batch_mask.unsqueeze(1).float()
-                        if temp < 0.2:
-                            batch_images = batch_images + (
-                                ((-batch_mask.unsqueeze(1).float()) + 1)
-                                * torch.normal(mean=0.5, std=torch.ones(batch_images.shape)).to(
-                                    device
-                                )
-                            )
+                    batch_images = self.random_masking(batch_images, batch_mask, device)
                     batch_features = self.extract_feature(batch_images)
                 else:
                     batch_features = batch_features_unmasked
