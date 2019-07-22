@@ -35,6 +35,7 @@ from torch.nn import CrossEntropyLoss
 from .bert_utils import cached_path, WEIGHTS_NAME, CONFIG_NAME
 from .dilated_attention import dilated_attention
 from .local_attention import local_attention
+from .positional_encoding import PositionalEncodingType
 
 from timer import default
 
@@ -381,7 +382,7 @@ class BertSelfAttentionDilation(nn.Module):
 
         self.positional_encoding = config.positional_encoding
         # Relative positional encoding
-        if self.positional_encoding == "Relative":
+        if self.positional_encoding == PositionalEncodingType.Relative:
             self.positional_encoding_k = config.positional_encoding_k
             pk = self.positional_encoding_k
             self.num_pos_emb_2d = (2 * pk + 1) * (2 * pk + 1)
@@ -430,7 +431,7 @@ class BertSelfAttentionDilation(nn.Module):
             key_layer = mixed_key_layer.view(*q_shape)
             value_layer = mixed_value_layer.view(*q_shape)
 
-            if self.positional_encoding == "Relative":
+            if self.positional_encoding == PositionalEncodingType.Relative:
                 # embLookupDil, embLookupRow, embLookupCol, embLookupLocal = embLookups
                 dilation, _ = self.dilations
                 embLookupDil = self.embLookupDil[0:(height / dilation), 0:(width / dilation),

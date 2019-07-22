@@ -7,17 +7,11 @@ from .bert import BertEncoder, BertConfig
 import torchvision.models as models
 from torch.autograd import Variable
 from enum import Enum
+from .positional_encoding import PositionalEncodingType
 
 import timer
 
 MAX_WIDTH_HEIGHT = 500
-
-
-class PositionalEncodingType(Enum):
-    Sinusoid2d = "Sinusoid2d"
-    Learned = "Learned"
-    Relative = "Relative"
-    Nothing = "Nothing"
 
 
 def positional_encodings_like(x, t=None):

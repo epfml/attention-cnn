@@ -18,6 +18,7 @@ from collections import OrderedDict
 from termcolor import colored
 from utils.logging import get_num_parameter
 import yaml
+import enum
 
 timer = default()
 
@@ -92,8 +93,11 @@ def parse_cli_overides():
                 return new_value
             if type(old_value) is bool:
                 return new_value.lower() in ("yes", "true", "t", "1")
+            if issubclass(old_value.__class__, enum.Enum):
+                return old_value.__class__(new_value)
             if old_value is None:
                 return new_value  # assume string
+            raise ValueError()
         except Exception:
             raise ValueError(f"Unable to parse config key '{key}' with value '{new_value}'")
 
