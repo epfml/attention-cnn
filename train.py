@@ -8,6 +8,7 @@ import torchvision
 from tqdm import tqdm
 import argparse
 import models
+from utils.learning_rate import linear_warmup_cosine_lr_scheduler
 import utils.accumulators
 from models.transformer import PositionalEncodingType
 from timer import default
@@ -17,6 +18,7 @@ from collections import OrderedDict
 from termcolor import colored
 from utils.logging import get_num_parameter
 import yaml
+import enum
 
 timer = default()
 
@@ -24,7 +26,9 @@ config = OrderedDict(
     dataset="Cifar10",
     model="bert",
     optimizer="SGD",
-    optimizer_decay_at_epochs=[80, 150],
+    optimizer_warmup_ratio=0.05,  # period of linear increase for lr scheduler
+    optimizer_cosine_lr=False,
+    optimizer_decay_at_epochs=[80, 150, 250],
     optimizer_decay_with_factor=10.0,
     optimizer_learning_rate=0.1,
     optimizer_momentum=0.9,
@@ -53,7 +57,7 @@ config = OrderedDict(
     attention_patch=5,
     use_resnet=True,
     classification_only=False,
-    inpainting_w = 0.5,
+    inpainting_w=0.5,
     # logging specific
     experiment_name=None,
     output_dir="./output.tmp",
@@ -89,8 +93,11 @@ def parse_cli_overides():
                 return new_value
             if type(old_value) is bool:
                 return new_value.lower() in ("yes", "true", "t", "1")
+            if issubclass(old_value.__class__, enum.Enum):
+                return old_value.__class__(new_value)
             if old_value is None:
                 return new_value  # assume string
+            raise ValueError()
         except Exception:
             raise ValueError(f"Unable to parse config key '{key}' with value '{new_value}'")
 
@@ -128,7 +135,6 @@ def main():
         # we parse the parameters overides
         parse_cli_overides()
 
-
     """
     Directory structure:
 
@@ -141,14 +147,14 @@ def main():
             |-- experiment_name
                 |-- tensorboard logs...
 
-    If no `experiment_name` name is given, save output directly in `output_dir`
+    If no `experiment_name` is given, save output directly in `output_dir`
     and does not log for tensorboard.
     Point tensorboard to `00_logdir`.
     """
 
     global output_dir
     output_dir = os.path.join(config["output_dir"], config["experiment_name"] or "")
-    os.makedirs(output_dir, exist_ok = True)
+    os.makedirs(output_dir, exist_ok=True)
     logdir = None
     if config["experiment_name"]:
         logdir = os.path.join(config["output_dir"], "00_logdir", config["experiment_name"])
@@ -158,7 +164,7 @@ def main():
 
     # create tensorboard writter
     if logdir:
-        writer = SummaryWriter(logdir=logdir)
+        writer = SummaryWriter(logdir=logdir, max_queue=100, flush_secs=10)
         print(f"Tensorboard logs saved in '{logdir}'")
     else:
         writer = DummySummaryWriter()
@@ -174,7 +180,8 @@ def main():
     # `config` dictionary.
     training_loader, test_loader = get_dataset(test_batch_size=config["batch_size"])
     model = get_model(device)
-    optimizer, scheduler = get_optimizer(model.parameters())
+    max_steps = config["num_epochs"] * (len(training_loader.dataset) // config["batch_size"] + 1)
+    optimizer, scheduler = get_optimizer(model.parameters(), max_steps)
     criterion = torch.nn.CrossEntropyLoss()
 
     # We keep track of the best accuracy so far to store checkpoints
@@ -187,17 +194,19 @@ def main():
         # Enable training mode (automatic differentiation + batch norm)
         model.train()
 
+        # Update the optimizer's learning rate
+        scheduler.step(global_step)
+        writer.add_scalar("train/lr", scheduler.get_lr()[0], global_step)
+
         # Keep track of statistics during training
         mean_train_accuracy = utils.accumulators.Mean()
         mean_train_loss = utils.accumulators.Mean()
-
-        # Update the optimizer's learning rate
-        scheduler.step(epoch)
 
         time_i = 0
         loader_time_context = timer("loader")
         loader_time_context.__enter__()
         for batch_x, batch_y, batch_mask in tqdm(training_loader):
+
             loader_time_context.__exit__(None, None, None)
             with timer("move_to_device"):
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
@@ -231,7 +240,9 @@ def main():
                 if config["classification_only"]:
                     loss = classification_loss
                 else:
-                    loss = classification_loss*(1-config["inpainting_w"]) + (inpainting_loss*config["inpainting_w"])
+                    loss = classification_loss * (1 - config["inpainting_w"]) + (
+                        inpainting_loss * config["inpainting_w"]
+                    )
 
             acc = accuracy(prediction, batch_y)
 
@@ -252,10 +263,6 @@ def main():
             writer.add_scalar("train/accuracy", acc, global_step)
 
             global_step += 1
-            # if global_step % args.display_period ==0:
-            # writer.add_image("input",batch_x, global_step)
-            # writer.add_image("masked_input", masked_input, global_step)
-            # writer.add_image("reconstruction", image_out, global_step)
 
             # Store the statistics
             mean_train_loss.add(loss.item(), weight=len(batch_x))
@@ -299,6 +306,8 @@ def main():
         is_best_so_far = best_accuracy_so_far.add(mean_test_accuracy.value())
         if is_best_so_far:
             store_checkpoint("best.checkpoint", model, epoch, mean_test_accuracy.value())
+
+        writer.flush()
 
     # Store a final checkpoint
     store_checkpoint(
@@ -376,7 +385,7 @@ def get_dataset(test_batch_size=100, shuffle_train=True, num_workers=2, data_roo
     return training_loader, test_loader
 
 
-def get_optimizer(model_parameters):
+def get_optimizer(model_parameters, max_steps):
     """
     Create an optimizer for a given model
     :param model_parameters: a list of parameters to be trained
@@ -394,11 +403,17 @@ def get_optimizer(model_parameters):
     else:
         raise ValueError("Unexpected value for optimizer")
 
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer,
-        milestones=config["optimizer_decay_at_epochs"],
-        gamma=1.0 / config["optimizer_decay_with_factor"],
-    )
+    if config["optimizer_cosine_lr"]:
+        scheduler = linear_warmup_cosine_lr_scheduler(
+            optimizer, config["optimizer_warmup_ratio"], max_steps
+        )
+
+    else:
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer,
+            milestones=config["optimizer_decay_at_epochs"],
+            gamma=1.0 / config["optimizer_decay_with_factor"],
+        )
 
     return optimizer, scheduler
 
@@ -427,12 +442,14 @@ def get_model(device):
         "bert": lambda: models.BertImage(config, num_classes=num_classes),
     }[config["model"]]()
 
-    model.to(device)
+    # compute number of parameters
     totalnum, numlist = get_num_parameter(model, trainable=False)
     print("total params: ", totalnum)
     totalnum, znumlist = get_num_parameter(model, trainable=True)
     print("total trainable: ", totalnum)
     print(numlist)
+
+    model.to(device)
     if device == "cuda":
         model = torch.nn.DataParallel(model)
         torch.backends.cudnn.benchmark = True
