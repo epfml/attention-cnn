@@ -16,7 +16,7 @@ from utils.data import MaskedDataset
 from tensorboardX import SummaryWriter
 from collections import OrderedDict
 from termcolor import colored
-from utils.logging import get_num_parameter
+from utils.logging import get_num_parameter, human_format
 import yaml
 import enum
 
@@ -448,9 +448,9 @@ def get_model(device):
 
     # compute number of parameters
     num_params, _ = get_num_parameter(model, trainable=False)
-    print("Number of parameters: ", num_params)
+    print("Number of parameters:", human_format(num_params))
     num_trainable_params, _ = get_num_parameter(model, trainable=True)
-    print("Number of trainable parameters: ", num_trainable_params)
+    print("Number of trainable parameters:", human_format(num_trainable_params))
 
     model.to(device)
     if device == "cuda":
