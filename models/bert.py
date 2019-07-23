@@ -392,13 +392,15 @@ class BertSelfAttentionDilation(nn.Module):
             self.posEmbRow = nn.Embedding(self.num_pos_emb_1d, self.attention_head_size)
             self.posEmbCol = nn.Embedding(self.num_pos_emb_1d, self.attention_head_size)
             self.embLookupDil = generate_lookup(
-                MAX_WIDTH_HEIGHT / config.attention_dilation, MAX_WIDTH_HEIGHT / config.attention_dilation,
-                self.positional_encoding_k
+                MAX_WIDTH_HEIGHT / config.attention_dilation,
+                MAX_WIDTH_HEIGHT / config.attention_dilation,
+                self.positional_encoding_k,
             )
             self.embLookupRow = generate_lookup(MAX_WIDTH_HEIGHT, 1, self.positional_encoding_k)
             self.embLookupCol = generate_lookup(1, MAX_WIDTH_HEIGHT, self.positional_encoding_k)
-            self.embLookupLocal = generate_lookup_local(self.kernel_size, self.positional_encoding_k)
-
+            self.embLookupLocal = generate_lookup_local(
+                self.kernel_size, self.positional_encoding_k
+            )
 
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
@@ -434,8 +436,12 @@ class BertSelfAttentionDilation(nn.Module):
             if self.positional_encoding == PositionalEncodingType.Relative:
                 # embLookupDil, embLookupRow, embLookupCol, embLookupLocal = embLookups
                 dilation, _ = self.dilations
-                embLookupDil = self.embLookupDil[0:(height / dilation), 0:(width / dilation),
-                               0:(height / dilation), 0:(width / dilation)]
+                embLookupDil = self.embLookupDil[
+                    0 : (height / dilation),
+                    0 : (width / dilation),
+                    0 : (height / dilation),
+                    0 : (width / dilation),
+                ]
                 embLookupRow = self.embLookupRow[0:height]
                 embLookupCol = self.embLookupCol[:, 0:width]
                 R_dil = self.posEmbDil(embLookupDil)
@@ -669,11 +675,7 @@ class BertLayer(nn.Module):
         attention_output = self.attention(hidden_states, attention_mask, head_mask)
         if self.output_attentions:
             attentions, attention_output = attention_output
-        #print(attention_output.shape)
-        #print(self.intermediate.dense)
-        #print((name,para) for (name,para) in self.intermediate.dense.named_parameters())
         intermediate_output = self.intermediate(attention_output)
-        #print(intermediate_output.shape)
         layer_output = self.output(intermediate_output, attention_output)
         if self.output_attentions:
             return attentions, layer_output
