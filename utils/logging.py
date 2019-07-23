@@ -4,14 +4,25 @@ import os
 
 def get_num_parameter(model, trainable=False):
     if trainable:
-        params = [(n, p) for (n,p) in model.named_parameters() if p.requires_grad]
+        params = [(n, p) for (n, p) in model.named_parameters() if p.requires_grad]
     else:
-        params = [(n, p) for (n,p) in model.named_parameters()]
+        params = [(n, p) for (n, p) in model.named_parameters()]
 
-    total_params = sum(p.numel() for (n,p) in params)
-    num_param_list = [(n, p.numel()) for (n,p) in params]
+    total_params = sum(p.numel() for (n, p) in params)
+    num_param_list = [(n, p.numel()) for (n, p) in params]
 
     return total_params, num_param_list
+
+
+def human_format(num):
+    num = float("{:.3g}".format(num))
+    magnitude = 0
+    while abs(num) >= 1000:
+        magnitude += 1
+        num /= 1000.0
+    return "{}{}".format(
+        "{:f}".format(num).rstrip("0").rstrip("."), ["", "K", "M", "B", "T"][magnitude]
+    )
 
 
 class JSONLogger:
@@ -41,13 +52,8 @@ class JSONLogger:
         :param values: dictionary, like { epoch: 3, value: 0.23 }
         :param tags: dictionary, like { split: train }
         """
-        self.values.append({
-            'measurement': name,
-            **values,
-            **tags,
-        })
-        print("{name}: {values} ({tags})".format(
-            name=name, values=values, tags=tags))
+        self.values.append({"measurement": name, **values, **tags})
+        print("{name}: {values} ({tags})".format(name=name, values=values, tags=tags))
         if self.auto_save:
             self.save()
 
@@ -55,5 +61,5 @@ class JSONLogger:
         """
         Save the internal memory to a file
         """
-        with open(self.filename, 'w') as fp:
-            json.dump(self.values, fp, indent=' ')
+        with open(self.filename, "w") as fp:
+            json.dump(self.values, fp, indent=" ")
