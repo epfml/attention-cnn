@@ -32,6 +32,10 @@ class BertImage(nn.Module):
 
         self.with_resnet = config["use_resnet"]
         self.hidden_size = config["hidden_size"]
+        self.concat_pooling = config["concat_pooling"]
+        assert (config["concat_pooling"] == 1) or (
+            not config["use_resnet"]
+        ), "Use either resnet or concat_pooling"
 
         self.positional_encoding = PositionalEncoding(
             config["positional_encoding"], self.hidden_size
@@ -46,6 +50,8 @@ class BertImage(nn.Module):
                 torch.rand(1, 3, 1024, 1024)
             ).shape
             self.feature_downscale_factor = 1024 // new_width
+        elif self.concat_pooling > 1:
+            num_channels_in = 3 * (self.concat_pooling ** 2)
         else:
             num_channels_in = 3
 
@@ -84,12 +90,11 @@ class BertImage(nn.Module):
         if temp > 0.1:
             batch_images = batch_images * batch_mask.unsqueeze(1).float()
             if temp < 0.2:
-                batch_images = batch_images + (((-batch_mask.unsqueeze(1).float()) + 1) * torch.normal(mean=0.5,
-                                                                                                       std=torch.ones(
-                                                                                                           batch_images.shape)).to(
-                    device))
+                batch_images = batch_images + (
+                    ((-batch_mask.unsqueeze(1).float()) + 1)
+                    * torch.normal(mean=0.5, std=torch.ones(batch_images.shape)).to(device)
+                )
         return batch_images
-
 
     def forward(self, batch_images, batch_mask=None, feature_mask=None, device=None):
 
@@ -101,6 +106,7 @@ class BertImage(nn.Module):
         Replace masked pixels/features by MSK token
         Use Bert encoder
         """
+
         # compute ResNet features
         if self.with_resnet:
 
@@ -121,13 +127,33 @@ class BertImage(nn.Module):
                     feature_mask = ~(
                         F.max_pool2d((~batch_mask).float(), self.feature_downscale_factor).byte()
                     )
+            # reshape from NCHW to NHWC
+            batch_features = batch_features.permute(0, 2, 3, 1)
+
+        elif self.concat_pooling > 1:
+
+            def downsample_concatenate(X, kernel):
+                """X is of shape B x H x W x C
+                return shape B x (kernel*H) x (kernel*W) x (kernel*kernel*C)
+                """
+                b, h, w, c = X.shape
+                Y = X.contiguous().view(b, h, w // kernel, c * kernel)
+                Y = Y.permute(0, 2, 1, 3).contiguous()
+                Y = Y.view(b, w // kernel, h // kernel, kernel * kernel * c).contiguous()
+                Y = Y.permute(0, 2, 1, 3).contiguous()
+                return Y
+
+            # reshape from NCHW to NHWC
+            batch_features = batch_images.permute(0, 2, 3, 1)
+            batch_features = downsample_concatenate(batch_features, self.concat_pooling)
+            feature_mask = None
+            if batch_mask is not None:
+                feature_mask = batch_mask[:, :: self.concat_pooling, :: self.concat_pooling]
+
         else:
             batch_features = batch_images
             feature_mask = batch_mask
-
-        # reshape from NCHW to NHWC
-
-        with self.timer("permute NCHW to NHWC"):
+            # reshape from NCHW to NHWC
             batch_features = batch_features.permute(0, 2, 3, 1)
 
         # feature upscale to BERT dimension

@@ -58,6 +58,9 @@ config = OrderedDict(
     use_resnet=True,
     classification_only=False,
     inpainting_w=0.5,
+    # concatenate the pixels value by patch of concat_pooling x concat_pooling
+    # to redude dimension
+    concat_pooling=1,
     # logging specific
     display_time=False,  # show timer after 1 epoch and stop
     experiment_name=None,
@@ -211,7 +214,8 @@ def main():
             loader_time_context.__exit__(None, None, None)
             with timer("move_to_device"):
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                batch_mask = batch_mask.to(device)
+                # batch_mask = batch_mask.to(device)
+            batch_mask = None
 
             batch_size, _, width, height = batch_x.shape
 
@@ -219,31 +223,34 @@ def main():
             optimizer.zero_grad()
 
             if config["use_resnet"]:
-                prediction, image_out, reconstruction, reconstruction_mask = model(
+                #, image_out, reconstruction, reconstruction_mask
+                prediction, _ = model(
                     batch_x, batch_mask, device=device
                 )
             else:
-                prediction, image_out = model(batch_x, batch_mask, device=device)
+                # prediction, image_out
+                prediction, _ = model(batch_x, batch_mask, device=device)
                 reconstruction = batch_x
                 reconstruction_mask = batch_mask
 
             with timer("loss"):
                 classification_loss = criterion(prediction, batch_y)
+                loss = classification_loss
 
                 # TODO check mask is 1 for keep and 0 for hide
-                mask_selector = ~reconstruction_mask.unsqueeze(1)
-                masked_input = torch.masked_select(reconstruction, mask_selector)
-                masked_output = torch.masked_select(image_out, mask_selector)
+                # mask_selector = ~reconstruction_mask.unsqueeze(1)
+                # masked_input = torch.masked_select(reconstruction, mask_selector)
+                # masked_output = torch.masked_select(image_out, mask_selector)
 
-                inpainting_loss = ((masked_input - masked_output) ** 2).mean()
+                # inpainting_loss = ((masked_input - masked_output) ** 2).mean()
 
-                # TODO weighting of the two losses
-                if config["classification_only"]:
-                    loss = classification_loss
-                else:
-                    loss = classification_loss * (1 - config["inpainting_w"]) + (
-                        inpainting_loss * config["inpainting_w"]
-                    )
+                # # TODO weighting of the two losses
+                # if config["classification_only"]:
+                #     loss = classification_loss
+                # else:
+                #     loss = classification_loss * (1 - config["inpainting_w"]) + (
+                #         inpainting_loss * config["inpainting_w"]
+                #     )
 
             acc = accuracy(prediction, batch_y)
 
@@ -254,12 +261,12 @@ def main():
             with timer("weights_update"):
                 optimizer.step()
 
-            writer.add_scalar(
-                "train/classification_loss", classification_loss / config["batch_size"], global_step
-            )
-            writer.add_scalar(
-                "train/inpainting_loss", inpainting_loss / config["batch_size"], global_step
-            )
+            # writer.add_scalar(
+            #     "train/classification_loss", classification_loss / config["batch_size"], global_step
+            # )
+            # writer.add_scalar(
+            #     "train/inpainting_loss", inpainting_loss / config["batch_size"], global_step
+            # )
             writer.add_scalar("train/loss", loss / config["batch_size"], global_step)
             writer.add_scalar("train/accuracy", acc, global_step)
 
