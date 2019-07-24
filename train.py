@@ -17,6 +17,7 @@ from tensorboardX import SummaryWriter
 from collections import OrderedDict
 from termcolor import colored
 from utils.logging import get_num_parameter, human_format
+from utils.plotting import plot_attention_positions_all_layers
 import yaml
 import enum
 
@@ -63,6 +64,7 @@ config = OrderedDict(
     concat_pooling=1,
     # logging specific
     display_time=False,  # show timer after 1 epoch and stop
+    plot_attention_positions=True,
     experiment_name=None,
     output_dir="./output.tmp",
 )
@@ -194,6 +196,9 @@ def main():
 
     for epoch in range(config["num_epochs"]):
         print("Epoch {:03d}".format(epoch))
+
+        if config["plot_attention_positions"]:
+            plot_attention_positions_all_layers(model, (32, 32), writer, epoch)
 
         # Enable training mode (automatic differentiation + batch norm)
         model.train()
