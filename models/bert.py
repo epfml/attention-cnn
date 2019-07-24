@@ -395,11 +395,8 @@ class GaussianSelfAttention(nn.Module):
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
-    def forward(self, hidden_states, attention_mask, head_mask=None):
-        assert len(hidden_states.shape) == 4
-        b, w, h, c = hidden_states.shape
-
-        self.u = torch.cat(
+    def get_heads_target_vectors(self):
+        return torch.cat(
             [
                 self.attention_centers,
                 torch.ones_like(self.attention_centers).float(),
@@ -408,14 +405,27 @@ class GaussianSelfAttention(nn.Module):
             dim=-1,
         )
 
-        # Compute attention map for each head
-        attention_scores = torch.einsum('ijkld,hd->ijhkl', [self.R[:w,:h,:w,:h,:], self.u])
-        # Apply alpha scale for each head and position
-        attention_scores *= self.attention_alpha.exp().view(1, 1, -1, 1, 1)
-        # Softmax
-        attention_probs = torch.nn.Softmax(dim=-1)(attention_scores.view(w, h, self.num_attention_heads, -1))
-        attention_probs = attention_probs.view(w, h, self.num_attention_heads, w, h)
+    def get_attention_probs(self, width, height):
+        """Compute the positional attention for an image of size width x height
+        Returns: tensor of attention probabilities (width, height, num_head, width, height)
+        """
+        self.u = self.get_heads_target_vectors()
 
+        # Compute attention map for each head
+        attention_scores = torch.einsum('ijkld,hd->ijhkl', [self.R[:width,:height,:width,:height,:], self.u])
+        # Apply alpha scale for each head and position
+        attention_scores *= - self.attention_alpha.exp().view(1, 1, -1, 1, 1)
+        # Softmax
+        attention_probs = torch.nn.Softmax(dim=-1)(attention_scores.view(width, height, self.num_attention_heads, -1))
+        attention_probs = attention_probs.view(width, height, self.num_attention_heads, width, height)
+
+        return attention_probs
+
+    def forward(self, hidden_states, attention_mask, head_mask=None):
+        assert len(hidden_states.shape) == 4
+        b, w, h, c = hidden_states.shape
+
+        attention_probs = self.get_attention_probs(w, h)
         attention_probs = self.dropout(attention_probs)
 
         mixed_value_layer = self.value(hidden_states)
