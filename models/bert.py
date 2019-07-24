@@ -429,7 +429,7 @@ class GaussianSelfAttention(nn.Module):
         output_value = output_value.contiguous()
         output_value = self.proj(output_value.view(output_value.shape[:3] + (-1, ))) # concatenate heads + FC
         if self.output_attentions:
-            return output_value, attention_prob
+            return output_value, attention_probs
         else:
             return output_value
 
