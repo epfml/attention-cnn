@@ -168,7 +168,9 @@ class BertImage(nn.Module):
         batch_features = self.positional_encoding(batch_features)
 
         # replace classification token (top left pixel)
-        batch_features[:, 0, 0, :] = self.cls_embedding.view(1, -1)
+        _, w, h, _ = batch_features.shape
+        w_cls, h_cls = w // 2, h // 2
+        batch_features[:, w_cls, h_cls, :] = self.cls_embedding.view(1, -1)
 
         with self.timer("Bert encoder"):
             representations = self.encoder(
@@ -177,7 +179,8 @@ class BertImage(nn.Module):
                 output_all_encoded_layers=False,  # TODO
             )[0]
 
-        cls_representation = representations[:, 0, 0, :]
+        # pool center pixel for classification
+        cls_representation = representations[:, w_cls, h_cls, :]
         cls_prediction = self.classifier(cls_representation)
 
         with self.timer("downscale"):
