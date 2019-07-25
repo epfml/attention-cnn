@@ -54,6 +54,8 @@ config = OrderedDict(
     mask_dimension=5,
     positional_encoding=PositionalEncodingType.Learned,
     positional_encoding_k=8,
+
+    attention_type="gaussian", #type of attention : "dilation" or "gaussian"
     attention_dilation=2,
     attention_patch=5,
     use_resnet=True,

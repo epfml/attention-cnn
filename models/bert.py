@@ -216,6 +216,7 @@ class BertConfig(object):
         type_vocab_size=2,
         initializer_range=0.02,
         layer_norm_eps=1e-12,
+        attention_type="gaussian",
         attention_dilation=8,
         attention_patch=5,
         positional_encoding="Learned",
@@ -266,6 +267,7 @@ class BertConfig(object):
             self.type_vocab_size = type_vocab_size
             self.initializer_range = initializer_range
             self.layer_norm_eps = layer_norm_eps
+            self.attention_type = attention_type
             self.attention_dilation = attention_dilation
             self.attention_patch = attention_patch
             self.positional_encoding = positional_encoding
@@ -688,7 +690,12 @@ class BertAttention(nn.Module):
     def __init__(self, config, output_attentions=False, keep_multihead_output=False):
         super(BertAttention, self).__init__()
         self.output_attentions = output_attentions
-        self.self = GaussianSelfAttention(
+        if config.attention_type == "gaussian":
+            self.self = GaussianSelfAttention(
+                config, output_attentions=output_attentions, keep_multihead_output=keep_multihead_output
+            )
+        else:
+            self.self = BertSelfAttentionDilation(
             config, output_attentions=output_attentions, keep_multihead_output=keep_multihead_output
         )
         self.output = BertSelfOutput(config)
