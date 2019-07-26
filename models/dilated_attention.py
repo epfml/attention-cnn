@@ -76,7 +76,6 @@ def dilated_attention(V, Q, K, R=None, dilation=1):
         "bxiyjhvw,bviwjhd->bxiyjhd", attention_coefficients, V_dilated, backend="torch"
     )
     new_V = new_V.contiguous().view(batch_size, width, height, n_head * d_v)
-    # print(new_V.shape)
     return new_V, attention_coefficients
 
 

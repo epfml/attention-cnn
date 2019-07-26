@@ -41,7 +41,7 @@ from .positional_encoding import PositionalEncodingType
 from opt_einsum import contract
 from timer import default
 
-MAX_WIDTH_HEIGHT = 500
+MAX_WIDTH_HEIGHT = 64
 
 timer = default()
 
@@ -69,9 +69,9 @@ def generate_lookup(H, W, k):
         for yi in range(W):
             for xj in range(H):
                 for yj in range(W):
-                    difx = min(max(0, xi - xj + k), 2 * k)
-                    dify = min(max(0, yi - yj + k), 2 * k)
-                    lkup[xi][yi][xj][yj] = difx * k + dify
+                    difx = 0 if H == 1 else min(max(0, xi - xj + k), 2 * k) # considers special cases for row and column attentions
+                    dify = 0 if W == 1 else min(max(0, yi - yj + k), 2 * k)
+                    lkup[xi][yi][xj][yj] = difx * (1 if W==1 else k) + dify
 
     return lkup
 
@@ -466,6 +466,7 @@ class BertSelfAttentionDilation(nn.Module):
 
         self.num_attention_heads = config.num_attention_heads
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        print(self.attention_head_size)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.dilations = (config.attention_dilation, config.attention_dilation)
         self.kernel_size = config.attention_patch
@@ -481,16 +482,16 @@ class BertSelfAttentionDilation(nn.Module):
             self.posEmbLocal = nn.Embedding(self.num_pos_emb_2d, self.attention_head_size)
             self.posEmbRow = nn.Embedding(self.num_pos_emb_1d, self.attention_head_size)
             self.posEmbCol = nn.Embedding(self.num_pos_emb_1d, self.attention_head_size)
-            self.embLookupDil = generate_lookup(
-                MAX_WIDTH_HEIGHT / config.attention_dilation,
-                MAX_WIDTH_HEIGHT / config.attention_dilation,
+            self.embLookupDil = nn.Parameter(generate_lookup(
+                int(MAX_WIDTH_HEIGHT / config.attention_dilation),
+                int(MAX_WIDTH_HEIGHT / config.attention_dilation),
                 self.positional_encoding_k,
-            )
-            self.embLookupRow = generate_lookup(MAX_WIDTH_HEIGHT, 1, self.positional_encoding_k)
-            self.embLookupCol = generate_lookup(1, MAX_WIDTH_HEIGHT, self.positional_encoding_k)
-            self.embLookupLocal = generate_lookup_local(
+            ),requires_grad=False)
+            self.embLookupRow = nn.Parameter(generate_lookup(MAX_WIDTH_HEIGHT, 1, self.positional_encoding_k),requires_grad=False)
+            self.embLookupCol = nn.Parameter(generate_lookup(1, MAX_WIDTH_HEIGHT, self.positional_encoding_k),requires_grad=False)
+            self.embLookupLocal = nn.Parameter(generate_lookup_local(
                 self.kernel_size, self.positional_encoding_k
-            )
+            ),requires_grad=False)
 
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
@@ -527,13 +528,14 @@ class BertSelfAttentionDilation(nn.Module):
                 # embLookupDil, embLookupRow, embLookupCol, embLookupLocal = embLookups
                 dilation, _ = self.dilations
                 embLookupDil = self.embLookupDil[
-                    0 : (height / dilation),
-                    0 : (width / dilation),
-                    0 : (height / dilation),
-                    0 : (width / dilation),
+                    0 : int(height / dilation),
+                    0 : int(width / dilation),
+                    0 : int(height / dilation),
+                    0 : int(width / dilation),
                 ]
-                embLookupRow = self.embLookupRow[0:height]
-                embLookupCol = self.embLookupCol[:, 0:width]
+
+                embLookupRow = self.embLookupRow[0:height,:,0:height,:]
+                embLookupCol = self.embLookupCol[:, 0:width,:,0:width]
                 R_dil = self.posEmbDil(embLookupDil)
                 R_row = self.posEmbRow(embLookupRow)
                 R_col = self.posEmbCol(embLookupCol)
