@@ -55,8 +55,7 @@ config = OrderedDict(
     mask_dimension=5,
     positional_encoding=PositionalEncodingType.Learned,
     positional_encoding_k=8,
-
-    attention_type="gaussian", #type of attention : "dilation" or "gaussian"
+    attention_type="gaussian",  # type of attention : "dilation" or "gaussian"
     attention_dilation=2,
     attention_patch=5,
     use_resnet=False,
@@ -143,7 +142,11 @@ def main():
     for epoch in range(config["num_epochs"]):
         print("Epoch {:03d}".format(epoch))
 
-        if "bert" in config["model"] and config["plot_attention_positions"]:
+        if (
+            "bert" in config["model"]
+            and config["plot_attention_positions"]
+            and config["attention_type"] == "gaussian"
+        ):
             plot_attention_positions_all_layers(model, (32, 32), writer, epoch)
 
         # Enable training mode (automatic differentiation + batch norm)

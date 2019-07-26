@@ -1,5 +1,6 @@
 import json
 import os
+from tensorboardX import SummaryWriter
 
 
 def get_num_parameter(model, trainable=False):
@@ -23,7 +24,6 @@ def human_format(num):
     return "{}{}".format(
         "{:f}".format(num).rstrip("0").rstrip("."), ["", "K", "M", "B", "T"][magnitude]
     )
-
 
 
 class DummySummaryWriter:
