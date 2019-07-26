@@ -16,8 +16,9 @@ from utils.data import MaskedDataset
 from tensorboardX import SummaryWriter
 from collections import OrderedDict
 from termcolor import colored
-from utils.logging import get_num_parameter, human_format
+from utils.logging import get_num_parameter, human_format, DummySummaryWriter
 from utils.plotting import plot_attention_positions_all_layers
+from utils.config import parse_cli_overides
 import yaml
 import enum
 
@@ -27,8 +28,8 @@ config = OrderedDict(
     dataset="Cifar10",
     model="bert",
     optimizer="SGD",
-    optimizer_warmup_ratio=0.05,  # period of linear increase for lr scheduler
     optimizer_cosine_lr=False,
+    optimizer_warmup_ratio=0.05,  # period of linear increase for lr scheduler
     optimizer_decay_at_epochs=[80, 150, 250],
     optimizer_decay_with_factor=10.0,
     optimizer_learning_rate=0.1,
@@ -58,12 +59,12 @@ config = OrderedDict(
     attention_type="gaussian", #type of attention : "dilation" or "gaussian"
     attention_dilation=2,
     attention_patch=5,
-    use_resnet=True,
+    use_resnet=False,
     classification_only=False,
     inpainting_w=0.5,
     # concatenate the pixels value by patch of concat_pooling x concat_pooling
     # to redude dimension
-    concat_pooling=1,
+    concat_pooling=2,
     # logging specific
     display_time=False,  # show timer after 1 epoch and stop
     plot_attention_positions=True,
@@ -71,64 +72,7 @@ config = OrderedDict(
     output_dir="./output.tmp",
 )
 
-
 output_dir = "./output.tmp"  # Can be overwritten by a script calling this
-
-
-def parse_cli_overides():
-    """
-    Parse args from CLI and override config dictionary entries
-    """
-    parser = argparse.ArgumentParser()
-    for key, value in config.items():
-        parser.add_argument(f"--{key}")
-    args = vars(parser.parse_args())
-
-    def print_config_override(key, old_value, new_value, first_config_overide):
-        if first_config_overide:
-            print(colored("Config overrides:", "red"))
-        print(f"     {key:25s} -> {new_value} (instead of {old_value})")
-
-    def cast_argument(key, old_value, new_value):
-        try:
-            if new_value is None:
-                return None
-            if type(old_value) is int:
-                return int(new_value)
-            if type(old_value) is float:
-                return float(new_value)
-            if type(old_value) is str:
-                return new_value
-            if type(old_value) is bool:
-                return new_value.lower() in ("yes", "true", "t", "1")
-            if issubclass(old_value.__class__, enum.Enum):
-                return old_value.__class__(new_value)
-            if old_value is None:
-                return new_value  # assume string
-            raise ValueError()
-        except Exception:
-            raise ValueError(f"Unable to parse config key '{key}' with value '{new_value}'")
-
-    first_config_overide = True
-    for key, original_value in config.items():
-        override_value = cast_argument(key, original_value, args[key])
-        if override_value is not None and override_value != original_value:
-            config[key] = override_value
-            print_config_override(key, original_value, override_value, first_config_overide)
-            first_config_overide = False
-
-
-class DummySummaryWriter:
-    """Mock a TensorboardX summary writer but does not do anything"""
-
-    def __init__(self):
-        def noop(*args, **kwargs):
-            pass
-
-        s = SummaryWriter()
-        for f in dir(s):
-            if not f.startswith("_"):
-                self.__setattr__(f, noop)
 
 
 def main():
@@ -138,10 +82,6 @@ def main():
     or import it as a module, override config and run main()
     :return: scalar of the best accuracy
     """
-    if __name__ == "__main__":
-        # if directly called from CLI (not as module)
-        # we parse the parameters overides
-        parse_cli_overides()
 
     """
     Directory structure:
@@ -188,7 +128,11 @@ def main():
     # `config` dictionary.
     training_loader, test_loader = get_dataset(test_batch_size=config["batch_size"])
     model = get_model(device)
-    max_steps = config["num_epochs"] * (len(training_loader.dataset) // config["batch_size"] + 1)
+
+    max_steps = config["num_epochs"]
+    if config["optimizer_cosine_lr"]:
+        max_steps *= len(training_loader.dataset) // config["batch_size"] + 1
+
     optimizer, scheduler = get_optimizer(model.parameters(), max_steps)
     criterion = torch.nn.CrossEntropyLoss()
 
@@ -199,14 +143,17 @@ def main():
     for epoch in range(config["num_epochs"]):
         print("Epoch {:03d}".format(epoch))
 
-        if config["plot_attention_positions"]:
+        if "bert" in config["model"] and config["plot_attention_positions"]:
             plot_attention_positions_all_layers(model, (32, 32), writer, epoch)
 
         # Enable training mode (automatic differentiation + batch norm)
         model.train()
 
         # Update the optimizer's learning rate
-        scheduler.step(global_step)
+        if config["optimizer_cosine_lr"]:
+            scheduler.step(global_step)
+        else:
+            scheduler.step()
         writer.add_scalar("train/lr", scheduler.get_lr()[0], global_step)
 
         # Keep track of statistics during training
@@ -230,15 +177,13 @@ def main():
             optimizer.zero_grad()
 
             if config["use_resnet"]:
-                #, image_out, reconstruction, reconstruction_mask
-                prediction, _ = model(
-                    batch_x, batch_mask, device=device
-                )
+                # , image_out, reconstruction, reconstruction_mask
+                prediction = model(batch_x)  # , batch_mask)
             else:
                 # prediction, image_out
-                prediction, _ = model(batch_x, batch_mask, device=device)
-                reconstruction = batch_x
-                reconstruction_mask = batch_mask
+                prediction = model(batch_x)  # , batch_mask)
+                # reconstruction = batch_x
+                # reconstruction_mask = batch_mask
 
             with timer("loss"):
                 classification_loss = criterion(prediction, batch_y)
@@ -274,7 +219,7 @@ def main():
             # writer.add_scalar(
             #     "train/inpainting_loss", inpainting_loss / config["batch_size"], global_step
             # )
-            writer.add_scalar("train/loss", loss / config["batch_size"], global_step)
+            writer.add_scalar("train/loss", loss, global_step)
             writer.add_scalar("train/accuracy", acc, global_step)
 
             global_step += 1
@@ -293,6 +238,7 @@ def main():
         log_metric(
             "cross_entropy", {"epoch": epoch, "value": mean_train_loss.value()}, {"split": "train"}
         )
+        log_metric("lr", {"epoch": epoch, "value": scheduler.get_lr()[0]}, {})
 
         # Evaluation
         with torch.no_grad():
@@ -301,7 +247,7 @@ def main():
             mean_test_loss = utils.accumulators.Mean()
             for batch_x, batch_y in test_loader:
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                prediction = model(batch_x, device=device)[0]
+                prediction = model(batch_x)
                 loss = criterion(prediction, batch_y)
                 acc = accuracy(prediction, batch_y)
                 mean_test_loss.add(loss.item(), weight=len(batch_x))
@@ -333,7 +279,6 @@ def main():
         "final.checkpoint", model, config["num_epochs"] - 1, mean_test_accuracy.value()
     )
     writer.close()
-
 
     # Return the optimal accuracy, could be used for learning rate tuning
     return best_accuracy_so_far.value()
@@ -452,6 +397,7 @@ def get_model(device):
         "vgg16_bn": lambda: models.VGG("VGG16", num_classes, batch_norm=True),
         "vgg19": lambda: models.VGG("VGG19", num_classes, batch_norm=False),
         "vgg19_bn": lambda: models.VGG("VGG19", num_classes, batch_norm=True),
+        "resnet10": lambda: models.ResNet10(num_classes=num_classes),
         "resnet18": lambda: models.ResNet18(num_classes=num_classes),
         "resnet34": lambda: models.ResNet34(num_classes=num_classes),
         "resnet50": lambda: models.ResNet50(num_classes=num_classes),
@@ -499,4 +445,7 @@ def store_checkpoint(filename, model, epoch, test_accuracy):
 
 
 if __name__ == "__main__":
+    # if directly called from CLI (not as module)
+    # we parse the parameters overides
+    config = parse_cli_overides(config)
     main()
