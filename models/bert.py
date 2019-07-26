@@ -378,7 +378,7 @@ class GaussianSelfAttention(nn.Module):
             torch.zeros(self.num_attention_heads, 2).normal_(0.0, 2.0)
         )
         self.attention_alpha = nn.Parameter(
-            torch.zeros(self.num_attention_heads).normal_(0.2, 0.1).log()
+            torch.zeros(self.num_attention_heads).normal_(1, 0.1).log()
         )
 
         # self.query = nn.Linear(config.hidden_size, self.all_head_size)
