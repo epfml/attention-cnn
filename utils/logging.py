@@ -25,6 +25,20 @@ def human_format(num):
     )
 
 
+
+class DummySummaryWriter:
+    """Mock a TensorboardX summary writer but does not do anything"""
+
+    def __init__(self):
+        def noop(*args, **kwargs):
+            pass
+
+        s = SummaryWriter()
+        for f in dir(s):
+            if not f.startswith("_"):
+                self.__setattr__(f, noop)
+
+
 class JSONLogger:
     """
     Very simple prototype logger that will store the values to a JSON file
