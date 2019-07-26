@@ -37,9 +37,9 @@ class BertImage(nn.Module):
             not config["use_resnet"]
         ), "Use either resnet or concat_pooling"
 
-        self.positional_encoding = PositionalEncoding(
-            config["positional_encoding"], self.hidden_size
-        )
+        # self.positional_encoding = PositionalEncoding(
+        #     config["positional_encoding"], self.hidden_size
+        # )
 
         if self.with_resnet:
             res50 = models.resnet50(pretrained=True)
@@ -72,7 +72,7 @@ class BertImage(nn.Module):
     def reset_parameters(self):
         self.mask_embedding.data.normal_(mean=0.0, std=0.01)
         self.cls_embedding.data.normal_(mean=0.0, std=0.01)  # TODO no hard coded
-        self.positional_encoding.reset_parameters()
+        # self.positional_encoding.reset_parameters()
 
     def random_masking(self, batch_images, batch_mask, device):
         """
@@ -96,7 +96,7 @@ class BertImage(nn.Module):
                 )
         return batch_images
 
-    def forward(self, batch_images, batch_mask=None, feature_mask=None, device=None):
+    def forward(self, batch_images, batch_mask=None, feature_mask=None):
 
         """
         Replace masked pixels with 0s
@@ -106,6 +106,7 @@ class BertImage(nn.Module):
         Replace masked pixels/features by MSK token
         Use Bert encoder
         """
+        device = batch_images.device
 
         # compute ResNet features
         if self.with_resnet:
@@ -165,7 +166,7 @@ class BertImage(nn.Module):
             batch_features[~feature_mask] = self.mask_embedding
 
         # add positional embedding
-        batch_features = self.positional_encoding(batch_features)
+        # batch_features = self.positional_encoding(batch_features)
 
         # replace classification token (top left pixel)
         _, w, h, _ = batch_features.shape
@@ -190,7 +191,8 @@ class BertImage(nn.Module):
             # back to NCWH format
             representations = representations.permute(0, 3, 1, 2)
 
-        if self.with_resnet:
-            return cls_prediction, representations, batch_features_unmasked, feature_mask
-        else:
-            return cls_prediction, representations
+        # if self.with_resnet:
+        #     return cls_prediction, representations, batch_features_unmasked, feature_mask
+        # else:
+        # return cls_prediction, representations
+        return cls_prediction
