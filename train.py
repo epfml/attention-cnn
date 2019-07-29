@@ -31,7 +31,7 @@ config = OrderedDict(
     model="bert",
     optimizer="SGD",
     optimizer_cosine_lr=False,
-    optimizer_warmup_ratio=0.,  # period of linear increase for lr scheduler
+    optimizer_warmup_ratio=0.0,  # period of linear increase for lr scheduler
     optimizer_decay_at_epochs=[80, 150, 250],
     optimizer_decay_with_factor=10.0,
     optimizer_learning_rate=0.1,
@@ -420,8 +420,8 @@ def get_model(device):
 
     # compute number of parameters
     num_params, _ = get_num_parameter(model, trainable=False)
-    num_bytes = num_params * 32 // 8 # assume float32 for all
-    print(f"Number of parameters: {human_format(num_params)} ({sizeof_fmt(num_bytes)} for float32)", )
+    num_bytes = num_params * 32 // 8  # assume float32 for all
+    print(f"Number of parameters: {human_format(num_params)} ({sizeof_fmt(num_bytes)} for float32)")
     num_trainable_params, trainable_parameters = get_num_parameter(model, trainable=True)
     print("Number of trainable parameters:", human_format(num_trainable_params))
 
