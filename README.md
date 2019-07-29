@@ -1,5 +1,7 @@
 # Cifar 10/100 default implementation
 
+Install pre-commit and run `pre-commit install`.
+
 MLO internal cifar 10 / 100 reference implementation.
 
 - Single machine
