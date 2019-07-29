@@ -1,8 +1,9 @@
 from termcolor import colored
 import argparse
+import enum
 
 
-def parse_cli_overides(config):
+def parse_cli_overides(config: dict):
     """
     Parse args from CLI and override config dictionary entries
     """
