@@ -16,11 +16,13 @@ from utils.data import MaskedDataset
 from tensorboardX import SummaryWriter
 from collections import OrderedDict
 from termcolor import colored
-from utils.logging import get_num_parameter, human_format, DummySummaryWriter
+from utils.logging import get_num_parameter, human_format, DummySummaryWriter, sizeof_fmt
 from utils.plotting import plot_attention_positions_all_layers
 from utils.config import parse_cli_overides
 import yaml
 import enum
+
+import tabulate
 
 timer = default()
 
@@ -29,7 +31,7 @@ config = OrderedDict(
     model="bert",
     optimizer="SGD",
     optimizer_cosine_lr=False,
-    optimizer_warmup_ratio=0.05,  # period of linear increase for lr scheduler
+    optimizer_warmup_ratio=0.,  # period of linear increase for lr scheduler
     optimizer_decay_at_epochs=[80, 150, 250],
     optimizer_decay_with_factor=10.0,
     optimizer_learning_rate=0.1,
@@ -56,6 +58,8 @@ config = OrderedDict(
     positional_encoding=PositionalEncodingType.Learned,
     positional_encoding_k=8,
     attention_type="gaussian",  # type of attention : "dilation" or "gaussian"
+    # use a computational trick for gaussian attention to not compute the attention probas
+    use_gaussian_blur_for_attention=False,
     attention_dilation=2,
     attention_patch=5,
     use_resnet=False,
@@ -65,7 +69,8 @@ config = OrderedDict(
     # to redude dimension
     concat_pooling=2,
     # logging specific
-    display_time=False,  # show timer after 1 epoch and stop
+    only_time_one_epoch=False,  # show timer after 1 epoch and stop
+    only_list_parameters=False,
     plot_attention_positions=True,
     experiment_name=None,
     output_dir="./output.tmp",
@@ -147,7 +152,11 @@ def main():
             and config["plot_attention_positions"]
             and config["attention_type"] == "gaussian"
         ):
-            plot_attention_positions_all_layers(model, (32, 32), writer, epoch)
+            if not config["use_gaussian_blur_for_attention"]:
+                plot_attention_positions_all_layers(model, (32, 32), writer, epoch)
+            else:
+                # TODO plot gaussian without attention weights
+                pass
 
         # Enable training mode (automatic differentiation + batch norm)
         model.train()
@@ -273,9 +282,9 @@ def main():
 
         writer.flush()
 
-        if config["display_time"]:
+        if config["only_time_one_epoch"]:
             print(timer.summary())
-            exit()
+            exit(0)
 
     # Store a final checkpoint
     store_checkpoint(
@@ -411,9 +420,14 @@ def get_model(device):
 
     # compute number of parameters
     num_params, _ = get_num_parameter(model, trainable=False)
-    print("Number of parameters:", human_format(num_params))
-    num_trainable_params, _ = get_num_parameter(model, trainable=True)
+    num_bytes = num_params * 32 // 8 # assume float32 for all
+    print(f"Number of parameters: {human_format(num_params)} ({sizeof_fmt(num_bytes)} for float32)", )
+    num_trainable_params, trainable_parameters = get_num_parameter(model, trainable=True)
     print("Number of trainable parameters:", human_format(num_trainable_params))
+
+    if config["only_list_parameters"]:
+        print(tabulate.tabulate(trainable_parameters))
+        exit()
 
     model.to(device)
     if device == "cuda":
