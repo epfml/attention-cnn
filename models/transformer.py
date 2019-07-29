@@ -58,19 +58,19 @@ class BertImage(nn.Module):
         bert_config = BertConfig.from_dict(config)
 
         self.features_upscale = nn.Linear(num_channels_in, self.hidden_size)
-        self.features_downscale = nn.Linear(self.hidden_size, num_channels_in)
+        # self.features_downscale = nn.Linear(self.hidden_size, num_channels_in)
 
         self.encoder = BertEncoder(bert_config)
         self.classifier = nn.Linear(self.hidden_size, num_classes)
-        self.pixelizer = nn.Linear(self.hidden_size, 3)
+        # self.pixelizer = nn.Linear(self.hidden_size, 3)
         self.register_buffer("attention_mask", torch.tensor(1.0))
 
-        self.mask_embedding = Parameter(torch.zeros(self.hidden_size))
+        # self.mask_embedding = Parameter(torch.zeros(self.hidden_size))
         self.cls_embedding = Parameter(torch.zeros(self.hidden_size))
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.mask_embedding.data.normal_(mean=0.0, std=0.01)
+        # self.mask_embedding.data.normal_(mean=0.0, std=0.01)
         self.cls_embedding.data.normal_(mean=0.0, std=0.01)  # TODO no hard coded
         # self.positional_encoding.reset_parameters()
 
@@ -162,8 +162,8 @@ class BertImage(nn.Module):
             batch_features = self.features_upscale(batch_features)
 
         # replace masked "pixels" by [MSK] token
-        if feature_mask is not None:
-            batch_features[~feature_mask] = self.mask_embedding
+        # if feature_mask is not None:
+        # batch_features[~feature_mask] = self.mask_embedding
 
         # add positional embedding
         # batch_features = self.positional_encoding(batch_features)
@@ -184,15 +184,4 @@ class BertImage(nn.Module):
         cls_representation = representations[:, w_cls, h_cls, :]
         cls_prediction = self.classifier(cls_representation)
 
-        with self.timer("downscale"):
-            representations = self.features_downscale(representations)
-
-        with self.timer("permute to NCWH"):
-            # back to NCWH format
-            representations = representations.permute(0, 3, 1, 2)
-
-        # if self.with_resnet:
-        #     return cls_prediction, representations, batch_features_unmasked, feature_mask
-        # else:
-        # return cls_prediction, representations
         return cls_prediction
