@@ -1,5 +1,6 @@
 import json
 import os
+from tensorboardX import SummaryWriter
 
 
 def get_num_parameter(model, trainable=False):
@@ -23,6 +24,27 @@ def human_format(num):
     return "{}{}".format(
         "{:f}".format(num).rstrip("0").rstrip("."), ["", "K", "M", "B", "T"][magnitude]
     )
+
+
+def sizeof_fmt(num, suffix="B"):
+    for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
+        if abs(num) < 1024.0:
+            return "%3.1f%s%s" % (num, unit, suffix)
+        num /= 1024.0
+    return "%.1f%s%s" % (num, "Yi", suffix)
+
+
+class DummySummaryWriter:
+    """Mock a TensorboardX summary writer but does not do anything"""
+
+    def __init__(self):
+        def noop(*args, **kwargs):
+            pass
+
+        s = SummaryWriter()
+        for f in dir(s):
+            if not f.startswith("_"):
+                self.__setattr__(f, noop)
 
 
 class JSONLogger:

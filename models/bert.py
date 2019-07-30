@@ -27,15 +27,18 @@ import tarfile
 import tempfile
 import sys
 from io import open
+import numbers
 
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
+from torch.nn import functional as F
 
 from .bert_utils import cached_path, WEIGHTS_NAME, CONFIG_NAME
 from .dilated_attention import dilated_attention
 from .local_attention import local_attention
 from .positional_encoding import PositionalEncodingType
+from .gaussian import gaussian_kernel_2d
 
 
 from opt_einsum import contract
@@ -222,6 +225,7 @@ class BertConfig(object):
         positional_encoding="Learned",
         positional_encoding_k=8,
         use_local=False,
+        use_gaussian_blur_for_attention=False,
     ):
         """Constructs BertConfig.
 
@@ -274,6 +278,7 @@ class BertConfig(object):
             self.positional_encoding = positional_encoding
             self.positional_encoding_k = positional_encoding_k
             self.use_local = use_local
+            self.use_gaussian_blur_for_attention = use_gaussian_blur_for_attention
         else:
             raise ValueError(
                 "First argument must be either a vocabulary size (int)"
@@ -371,33 +376,36 @@ class BertEmbeddings(nn.Module):
 class GaussianSelfAttention(nn.Module):
     def __init__(self, config, output_attentions=False, keep_multihead_output=False):
         super().__init__()
+        self.use_gaussian_blur_for_attention = config.use_gaussian_blur_for_attention
+
         self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
-        self.all_head_size = self.num_attention_heads * self.attention_head_size
+        # assert config.hidden_size % config.num_attention_heads == 0, "num_attention_heads should divide hidden_size"
+        # self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * config.hidden_size
         self.output_attentions = output_attentions
 
         self.attention_centers = nn.Parameter(
             torch.zeros(self.num_attention_heads, 2).normal_(0.0, 2.0)
         )
         self.attention_alpha = nn.Parameter(
-            torch.zeros(self.num_attention_heads).normal_(0.2, 0.1).log()
+            torch.zeros(self.num_attention_heads).normal_(1, 0.1).log()
         )
 
         # self.query = nn.Linear(config.hidden_size, self.all_head_size)
         # self.key = nn.Linear(config.hidden_size, self.all_head_size)
-        self.value = nn.Linear(config.hidden_size, self.all_head_size)
-        self.proj = nn.Linear(config.hidden_size, config.hidden_size)
+        self.value = nn.Linear(self.all_head_size, config.hidden_size)
+        # self.proj = nn.Linear(config.hidden_size, config.hidden_size)
 
-        # relative encoding grid (delta_x, delta_y, delta_x**2, delta_y**2, 1, 1)
-        MAX_WIDTH_HEIGHT = 50
-        range_ = torch.arange(MAX_WIDTH_HEIGHT)
-        grid = torch.cat([t.unsqueeze(-1) for t in torch.meshgrid([range_, range_])], dim=-1)
-        relative_indices = grid.unsqueeze(0).unsqueeze(0) - grid.unsqueeze(-2).unsqueeze(-2)
-        R = torch.cat([relative_indices, relative_indices ** 2, torch.ones_like(relative_indices)], dim=-1)
-        R = R.float()
-        self.register_buffer("R", R)
-
-        self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
+        if not config.use_gaussian_blur_for_attention:
+            # relative encoding grid (delta_x, delta_y, delta_x**2, delta_y**2, 1, 1)
+            MAX_WIDTH_HEIGHT = 50
+            range_ = torch.arange(MAX_WIDTH_HEIGHT)
+            grid = torch.cat([t.unsqueeze(-1) for t in torch.meshgrid([range_, range_])], dim=-1)
+            relative_indices = grid.unsqueeze(0).unsqueeze(0) - grid.unsqueeze(-2).unsqueeze(-2)
+            R = torch.cat([relative_indices, relative_indices ** 2, torch.ones_like(relative_indices)], dim=-1)
+            R = R.float()
+            self.register_buffer("R", R)
+            self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
     def get_heads_target_vectors(self):
         return torch.cat(
@@ -425,23 +433,56 @@ class GaussianSelfAttention(nn.Module):
 
         return attention_probs
 
+    def blured_attention(self, X):
+        """Compute the weighted average according to gaussian attention without
+        computing explicitly the attention coefficients.
+
+        Args:
+            X (tensor): shape (batch, width, height, dim)
+        Output:
+            shape (batch, width, height, dim x num_heads)
+        """
+        num_heads = self.attention_centers.shape[0]
+        batch, width, height, d_total = X.shape
+        Y = X.permute(0, 3, 1, 2).contiguous()
+
+        kernels = []
+        kernel_width = kernel_height = 7
+        assert kernel_width % 2 == 1 and kernel_height % 2 == 1, 'kernel size should be odd'
+
+        for mean, std_inv in zip(self.attention_centers, self.attention_alpha):
+            conv_weights = gaussian_kernel_2d(mean, std_inv, size=(kernel_width, kernel_height))
+            conv_weights = conv_weights.view(1, 1, kernel_width, kernel_height).repeat(d_total, 1, 1, 1)
+            kernels.append(conv_weights)
+
+        weights = torch.cat(kernels)
+
+        padding_width = (kernel_width - 1) // 2
+        padding_height = (kernel_height - 1) // 2
+        out = F.conv2d(Y, weights, groups=d_total, padding=(padding_width, padding_height))
+
+        # renormalize for padding
+        all_one_input = torch.ones(1, d_total, width, height, device=X.device)
+        normalizer = F.conv2d(all_one_input, weights,  groups=d_total, padding=(padding_width, padding_height))
+        out /= normalizer
+
+        return out.permute(0, 2, 3, 1).contiguous()
+
     def forward(self, hidden_states, attention_mask, head_mask=None):
         assert len(hidden_states.shape) == 4
         b, w, h, c = hidden_states.shape
 
-        attention_probs = self.get_attention_probs(w, h)
-        attention_probs = self.dropout(attention_probs)
+        if not self.use_gaussian_blur_for_attention:
+            attention_probs = self.get_attention_probs(w, h)
+            attention_probs = self.dropout(attention_probs)
 
-        mixed_value_layer = self.value(hidden_states)
-        new_shape = mixed_value_layer.size()[:-1] + (
-            self.num_attention_heads,
-            self.attention_head_size,
-        )
-        value_layer = mixed_value_layer.view(*new_shape)
+            input_values = contract('ijhkl,bkld->bijhd', attention_probs, hidden_states, backend="torch")
+            input_values = input_values.contiguous().view(b, w, h, -1)
+        else:
+            input_values = self.blured_attention(hidden_states)
 
-        output_value = contract('ijhkl,bklhd->bijhd', attention_probs, value_layer, backend="torch")
-        output_value = output_value.contiguous()
-        output_value = self.proj(output_value.view(output_value.shape[:3] + (-1, ))) # concatenate heads + FC
+        output_value = self.value(input_values)
+
         if self.output_attentions:
             return output_value, attention_probs
         else:
@@ -467,8 +508,8 @@ class BertSelfAttentionDilation(nn.Module):
         self.multihead_output = None
 
         self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
-        print(self.attention_head_size)
+        assert config.hidden_size % config.num_attention_heads, "num_attention_heads should divide hidden_size"
+        self.attention_head_size = config.hidden_size // config.num_attention_heads
         self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.dilations = (config.attention_dilation, config.attention_dilation)
         self.kernel_size = config.attention_patch

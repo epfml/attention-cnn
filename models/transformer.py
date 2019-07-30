@@ -37,9 +37,9 @@ class BertImage(nn.Module):
             not config["use_resnet"]
         ), "Use either resnet or concat_pooling"
 
-        self.positional_encoding = PositionalEncoding(
-            config["positional_encoding"], self.hidden_size
-        )
+        # self.positional_encoding = PositionalEncoding(
+        #     config["positional_encoding"], self.hidden_size
+        # )
 
         if self.with_resnet:
             res50 = models.resnet50(pretrained=True)
@@ -58,21 +58,21 @@ class BertImage(nn.Module):
         bert_config = BertConfig.from_dict(config)
 
         self.features_upscale = nn.Linear(num_channels_in, self.hidden_size)
-        self.features_downscale = nn.Linear(self.hidden_size, num_channels_in)
+        # self.features_downscale = nn.Linear(self.hidden_size, num_channels_in)
 
         self.encoder = BertEncoder(bert_config)
         self.classifier = nn.Linear(self.hidden_size, num_classes)
-        self.pixelizer = nn.Linear(self.hidden_size, 3)
+        # self.pixelizer = nn.Linear(self.hidden_size, 3)
         self.register_buffer("attention_mask", torch.tensor(1.0))
 
-        self.mask_embedding = Parameter(torch.zeros(self.hidden_size))
+        # self.mask_embedding = Parameter(torch.zeros(self.hidden_size))
         self.cls_embedding = Parameter(torch.zeros(self.hidden_size))
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.mask_embedding.data.normal_(mean=0.0, std=0.01)
+        # self.mask_embedding.data.normal_(mean=0.0, std=0.01)
         self.cls_embedding.data.normal_(mean=0.0, std=0.01)  # TODO no hard coded
-        self.positional_encoding.reset_parameters()
+        # self.positional_encoding.reset_parameters()
 
     def random_masking(self, batch_images, batch_mask, device):
         """
@@ -96,7 +96,7 @@ class BertImage(nn.Module):
                 )
         return batch_images
 
-    def forward(self, batch_images, batch_mask=None, feature_mask=None, device=None):
+    def forward(self, batch_images, batch_mask=None, feature_mask=None):
 
         """
         Replace masked pixels with 0s
@@ -106,6 +106,7 @@ class BertImage(nn.Module):
         Replace masked pixels/features by MSK token
         Use Bert encoder
         """
+        device = batch_images.device
 
         # compute ResNet features
         if self.with_resnet:
@@ -161,14 +162,16 @@ class BertImage(nn.Module):
             batch_features = self.features_upscale(batch_features)
 
         # replace masked "pixels" by [MSK] token
-        if feature_mask is not None:
-            batch_features[~feature_mask] = self.mask_embedding
+        # if feature_mask is not None:
+        # batch_features[~feature_mask] = self.mask_embedding
 
         # add positional embedding
-        batch_features = self.positional_encoding(batch_features)
+        # batch_features = self.positional_encoding(batch_features)
 
         # replace classification token (top left pixel)
-        batch_features[:, 0, 0, :] = self.cls_embedding.view(1, -1)
+        _, w, h, _ = batch_features.shape
+        w_cls, h_cls = w // 2, h // 2
+        batch_features[:, w_cls, h_cls, :] = self.cls_embedding.view(1, -1)
 
         with self.timer("Bert encoder"):
             representations = self.encoder(
@@ -177,17 +180,8 @@ class BertImage(nn.Module):
                 output_all_encoded_layers=False,  # TODO
             )[0]
 
-        cls_representation = representations[:, 0, 0, :]
+        # pool center pixel for classification
+        cls_representation = representations[:, w_cls, h_cls, :]
         cls_prediction = self.classifier(cls_representation)
 
-        with self.timer("downscale"):
-            representations = self.features_downscale(representations)
-
-        with self.timer("permute to NCWH"):
-            # back to NCWH format
-            representations = representations.permute(0, 3, 1, 2)
-
-        if self.with_resnet:
-            return cls_prediction, representations, batch_features_unmasked, feature_mask
-        else:
-            return cls_prediction, representations
+        return cls_prediction
