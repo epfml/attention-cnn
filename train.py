@@ -54,6 +54,7 @@ config = OrderedDict(
     mask_dimension=5,
     positional_encoding=PositionalEncodingType.Learned,
     positional_encoding_k=8,
+    use_local=False,
 
     attention_type="gaussian", #type of attention : "dilation" or "gaussian"
     attention_dilation=2,
@@ -322,7 +323,7 @@ def main():
         if is_best_so_far:
             store_checkpoint("best.checkpoint", model, epoch, mean_test_accuracy.value())
 
-        writer.flush()
+        #writer.flush()
 
         if config["display_time"]:
             print(timer.summary())

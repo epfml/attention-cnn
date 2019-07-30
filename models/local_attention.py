@@ -41,10 +41,7 @@ def local_attention(V, Q, K, R=None, kernel_size=5):
     d_k = Q.shape[-1]
 
     K_field = get_unfolded(K,kernel_size).view((batch_size, n_head, d_v, width, height, kernel_size, kernel_size))
-    # input R shape: kernel_size x kernel_size x d_v
-    if R is not None:
-        R = R.permute(0,5,6,1,2,3,4)
-        K_field = K_field + R
+    # input R shape: kernelsize x kernel_size x d_v
     V_field = get_unfolded(V,kernel_size).view((batch_size, n_head, d_v, width, height, kernel_size, kernel_size))
     #Q_field = get_unfolded(Q)
 

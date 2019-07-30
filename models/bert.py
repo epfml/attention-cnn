@@ -221,6 +221,7 @@ class BertConfig(object):
         attention_patch=5,
         positional_encoding="Learned",
         positional_encoding_k=8,
+        use_local=False,
     ):
         """Constructs BertConfig.
 
@@ -272,6 +273,7 @@ class BertConfig(object):
             self.attention_patch = attention_patch
             self.positional_encoding = positional_encoding
             self.positional_encoding_k = positional_encoding_k
+            self.use_local = use_local
         else:
             raise ValueError(
                 "First argument must be either a vocabulary size (int)"
@@ -470,6 +472,7 @@ class BertSelfAttentionDilation(nn.Module):
         self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.dilations = (config.attention_dilation, config.attention_dilation)
         self.kernel_size = config.attention_patch
+        self.use_local = config.use_local
 
         self.positional_encoding = config.positional_encoding
         # Relative positional encoding
@@ -489,14 +492,18 @@ class BertSelfAttentionDilation(nn.Module):
             ),requires_grad=False)
             self.embLookupRow = nn.Parameter(generate_lookup(MAX_WIDTH_HEIGHT, 1, self.positional_encoding_k),requires_grad=False)
             self.embLookupCol = nn.Parameter(generate_lookup(1, MAX_WIDTH_HEIGHT, self.positional_encoding_k),requires_grad=False)
-            self.embLookupLocal = nn.Parameter(generate_lookup_local(
-                self.kernel_size, self.positional_encoding_k
-            ),requires_grad=False)
+            if config.use_local:
+                self.embLookupLocal = nn.Parameter(generate_lookup_local(
+                    self.kernel_size, self.positional_encoding_k
+                ),requires_grad=False)
 
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
-        self.proj = nn.Linear(3 * config.hidden_size, config.hidden_size)
+        if config.use_local:
+            self.proj = nn.Linear(4 * config.hidden_size, config.hidden_size)
+        else:
+            self.proj = nn.Linear(3 * config.hidden_size, config.hidden_size)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
@@ -539,7 +546,8 @@ class BertSelfAttentionDilation(nn.Module):
                 R_dil = self.posEmbDil(embLookupDil)
                 R_row = self.posEmbRow(embLookupRow)
                 R_col = self.posEmbCol(embLookupCol)
-                R_local = self.posEmbLocal(self.embLookupLocal)
+                if self.use_local:
+                    R_local = self.posEmbLocal(self.embLookupLocal)
             else:
                 R_dil = R_row = R_col = R_local = None
 
@@ -560,17 +568,29 @@ class BertSelfAttentionDilation(nn.Module):
                 )
             # local patch attention
             # with timer("attention_patch"):
-            # context_layer_local,attention_probs_local = local_attention(value_layer, query_layer, key_layer,R_local, self.kernel_size)
+            if self.use_local:
+                context_layer_local,attention_probs_local = local_attention(value_layer, query_layer, key_layer,R_local, self.kernel_size)
 
             with timer("output projection"):
-                context_layer_cat = torch.cat(
-                    (
-                        context_layer_dil,
-                        context_layer_row,
-                        context_layer_col,  # context_layer_local
-                    ),
-                    dim=-1,
-                )
+                if self.use_local:
+                    context_layer_cat = torch.cat(
+                        (
+                            context_layer_dil,
+                            context_layer_row,
+                            context_layer_col,  # context_layer_local
+                            context_layer_local
+                        ),
+                        dim=-1,
+                    )
+                else:
+                    context_layer_cat = torch.cat(
+                        (
+                            context_layer_dil,
+                            context_layer_row,
+                            context_layer_col,  # context_layer_local
+                        ),
+                        dim=-1,
+                    )
                 context_layer = self.proj(
                     context_layer_cat
                 )  # linear projection back to hidden_size
