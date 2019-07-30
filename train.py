@@ -58,6 +58,7 @@ config = OrderedDict(
     positional_encoding=PositionalEncodingType.Learned,
     positional_encoding_k=8,
     use_local=False,
+    shared_embedding=False,
     attention_type="gaussian", #type of attention : "dilation" or "gaussian"
     # use a computational trick for gaussian attention to not compute the attention probas
     use_gaussian_blur_for_attention=False,

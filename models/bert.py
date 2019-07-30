@@ -225,6 +225,7 @@ class BertConfig(object):
         positional_encoding="Learned",
         positional_encoding_k=8,
         use_local=False,
+        shared_embedding=False,
         use_gaussian_blur_for_attention=False,
     ):
         """Constructs BertConfig.
@@ -278,6 +279,36 @@ class BertConfig(object):
             self.positional_encoding = positional_encoding
             self.positional_encoding_k = positional_encoding_k
             self.use_local = use_local
+
+            if shared_embedding:
+                attention_head_size = hidden_size // num_attention_heads
+                pk = self.positional_encoding_k
+                num_pos_emb_2d = (2 * pk + 1) * (2 * pk + 1)
+                num_pos_emb_1d = 2 * pk + 1
+                posEmbDil = nn.Embedding(num_pos_emb_2d, attention_head_size)
+                posEmbRow = nn.Embedding(num_pos_emb_1d, attention_head_size)
+                posEmbCol = nn.Embedding(num_pos_emb_1d, attention_head_size)
+                embLookupDil = nn.Parameter(generate_lookup(
+                    int(MAX_WIDTH_HEIGHT / attention_dilation),
+                    int(MAX_WIDTH_HEIGHT / attention_dilation),
+                    self.positional_encoding_k,
+                ), requires_grad=False)
+                embLookupRow = nn.Parameter(generate_lookup(MAX_WIDTH_HEIGHT, 1, self.positional_encoding_k),
+                                                 requires_grad=False)
+                embLookupCol = nn.Parameter(generate_lookup(1, MAX_WIDTH_HEIGHT, self.positional_encoding_k),
+                                                 requires_grad=False)
+                if use_local:
+                    posEmbLocal = nn.Embedding(num_pos_emb_2d, attention_head_size)
+                    embLookupLocal = nn.Parameter(generate_lookup_local(
+                        self.kernel_size, self.positional_encoding_k
+                    ), requires_grad=False)
+                    self.shared_embedding = (posEmbDil,posEmbRow,posEmbCol,posEmbLocal,embLookupDil,embLookupRow,embLookupCol,embLookupLocal)
+                else:
+                    self.shared_embedding = (
+                    posEmbDil, posEmbRow, posEmbCol, embLookupDil, embLookupRow, embLookupCol)
+            else:
+                self.shared_embedding = None
+
             self.use_gaussian_blur_for_attention = use_gaussian_blur_for_attention
         else:
             raise ValueError(
@@ -518,25 +549,33 @@ class BertSelfAttentionDilation(nn.Module):
         self.positional_encoding = config.positional_encoding
         # Relative positional encoding
         if self.positional_encoding == PositionalEncodingType.Relative:
-            self.positional_encoding_k = config.positional_encoding_k
-            pk = self.positional_encoding_k
-            self.num_pos_emb_2d = (2 * pk + 1) * (2 * pk + 1)
-            self.num_pos_emb_1d = 2 * pk + 1
-            self.posEmbDil = nn.Embedding(self.num_pos_emb_2d, self.attention_head_size)
-            self.posEmbLocal = nn.Embedding(self.num_pos_emb_2d, self.attention_head_size)
-            self.posEmbRow = nn.Embedding(self.num_pos_emb_1d, self.attention_head_size)
-            self.posEmbCol = nn.Embedding(self.num_pos_emb_1d, self.attention_head_size)
-            self.embLookupDil = nn.Parameter(generate_lookup(
-                int(MAX_WIDTH_HEIGHT / config.attention_dilation),
-                int(MAX_WIDTH_HEIGHT / config.attention_dilation),
-                self.positional_encoding_k,
-            ),requires_grad=False)
-            self.embLookupRow = nn.Parameter(generate_lookup(MAX_WIDTH_HEIGHT, 1, self.positional_encoding_k),requires_grad=False)
-            self.embLookupCol = nn.Parameter(generate_lookup(1, MAX_WIDTH_HEIGHT, self.positional_encoding_k),requires_grad=False)
-            if config.use_local:
-                self.embLookupLocal = nn.Parameter(generate_lookup_local(
-                    self.kernel_size, self.positional_encoding_k
+            if config.shared_embedding is not None:
+                if self.use_local:
+                    (self.posEmbDil, self.posEmbRow, self.posEmbCol, self.posEmbLocal, self.embLookupDil,
+                    self.embLookupRow, self.embLookupCol, self.embLookupLocal) = config.shared_embedding
+                else:
+                    (self.posEmbDil, self.posEmbRow, self.posEmbCol, self.embLookupDil,
+                     self.embLookupRow, self.embLookupCol) = config.shared_embedding
+            else:
+                self.positional_encoding_k = config.positional_encoding_k
+                pk = self.positional_encoding_k
+                self.num_pos_emb_2d = (2 * pk + 1) * (2 * pk + 1)
+                self.num_pos_emb_1d = 2 * pk + 1
+                self.posEmbDil = nn.Embedding(self.num_pos_emb_2d, self.attention_head_size)
+                self.posEmbLocal = nn.Embedding(self.num_pos_emb_2d, self.attention_head_size)
+                self.posEmbRow = nn.Embedding(self.num_pos_emb_1d, self.attention_head_size)
+                self.posEmbCol = nn.Embedding(self.num_pos_emb_1d, self.attention_head_size)
+                self.embLookupDil = nn.Parameter(generate_lookup(
+                    int(MAX_WIDTH_HEIGHT / config.attention_dilation),
+                    int(MAX_WIDTH_HEIGHT / config.attention_dilation),
+                    self.positional_encoding_k,
                 ),requires_grad=False)
+                self.embLookupRow = nn.Parameter(generate_lookup(MAX_WIDTH_HEIGHT, 1, self.positional_encoding_k),requires_grad=False)
+                self.embLookupCol = nn.Parameter(generate_lookup(1, MAX_WIDTH_HEIGHT, self.positional_encoding_k),requires_grad=False)
+                if config.use_local:
+                    self.embLookupLocal = nn.Parameter(generate_lookup_local(
+                        self.kernel_size, self.positional_encoding_k
+                    ),requires_grad=False)
 
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
