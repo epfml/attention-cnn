@@ -162,7 +162,7 @@ def main():
             and config["attention_type"] == "gaussian"
         ):
             if not config["attention_gaussian_blur_trick"]:
-                plot_attention_positions_all_layers(model, (32, 32), writer, epoch)
+                plot_attention_positions_all_layers(model, (16, 16), writer, epoch)
             else:
                 # TODO plot gaussian without attention weights
                 pass
