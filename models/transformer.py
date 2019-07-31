@@ -66,13 +66,14 @@ class BertImage(nn.Module):
         self.register_buffer("attention_mask", torch.tensor(1.0))
 
         # self.mask_embedding = Parameter(torch.zeros(self.hidden_size))
-        self.cls_embedding = Parameter(torch.zeros(self.hidden_size))
-        self.reset_parameters()
+        # self.cls_embedding = Parameter(torch.zeros(self.hidden_size))
+        # self.reset_parameters()
 
     def reset_parameters(self):
         # self.mask_embedding.data.normal_(mean=0.0, std=0.01)
-        self.cls_embedding.data.normal_(mean=0.0, std=0.01)  # TODO no hard coded
+        # self.cls_embedding.data.normal_(mean=0.0, std=0.01)  # TODO no hard coded
         # self.positional_encoding.reset_parameters()
+        pass
 
     def random_masking(self, batch_images, batch_mask, device):
         """
@@ -171,9 +172,9 @@ class BertImage(nn.Module):
         # batch_features = self.positional_encoding(batch_features)
 
         # replace classification token (top left pixel)
-        _, w, h, _ = batch_features.shape
-        w_cls, h_cls = w // 2, h // 2
-        batch_features[:, w_cls, h_cls, :] = self.cls_embedding.view(1, -1)
+        b, w, h, _ = batch_features.shape
+        # w_cls, h_cls = w // 2, h // 2
+        # batch_features[:, w_cls, h_cls, :] = self.cls_embedding.view(1, -1)
 
         with self.timer("Bert encoder"):
             representations = self.encoder(
@@ -182,8 +183,8 @@ class BertImage(nn.Module):
                 output_all_encoded_layers=False,  # TODO
             )[0]
 
-        # pool center pixel for classification
-        cls_representation = representations[:, w_cls, h_cls, :]
+        # max pool for representation (features for classification)
+        cls_representation = representations.view(b, -1, representations.shape[-1]).mean(dim=1)
         cls_prediction = self.classifier(cls_representation)
 
         return cls_prediction
