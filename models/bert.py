@@ -223,9 +223,9 @@ class BertConfig(object):
         attention_dilation=None,
         attention_local_patch_size=None,
         positional_encoding=None,
-        positional_encoding_k=None,
-        use_local=None,
-        shared_embedding=None,
+        max_positional_encoding=None,
+        use_local_attention=None,
+        shared_position_embedding=None,
         attention_gaussian_blur_trick=None,
         attention_isotropic_gaussian=None,
     ):
@@ -278,12 +278,12 @@ class BertConfig(object):
             self.attention_dilation = attention_dilation
             self.attention_local_patch_size = attention_local_patch_size
             self.positional_encoding = positional_encoding
-            self.positional_encoding_k = positional_encoding_k
-            self.use_local = use_local
+            self.max_positional_encoding = max_positional_encoding
+            self.use_local_attention = use_local_attention
 
-            if shared_embedding:
+            if shared_position_embedding:
                 attention_head_size = hidden_size // num_attention_heads
-                pk = self.positional_encoding_k
+                pk = self.max_positional_encoding
                 num_pos_emb_2d = (2 * pk + 1) * (2 * pk + 1)
                 num_pos_emb_1d = 2 * pk + 1
                 posEmbDil = nn.Embedding(num_pos_emb_2d, attention_head_size)
@@ -292,23 +292,23 @@ class BertConfig(object):
                 embLookupDil = nn.Parameter(generate_lookup(
                     int(MAX_WIDTH_HEIGHT / attention_dilation),
                     int(MAX_WIDTH_HEIGHT / attention_dilation),
-                    self.positional_encoding_k,
+                    self.max_positional_encoding,
                 ), requires_grad=False)
-                embLookupRow = nn.Parameter(generate_lookup(MAX_WIDTH_HEIGHT, 1, self.positional_encoding_k),
-                                                 requires_grad=False)
-                embLookupCol = nn.Parameter(generate_lookup(1, MAX_WIDTH_HEIGHT, self.positional_encoding_k),
-                                                 requires_grad=False)
-                if use_local:
+                embLookupRow = nn.Parameter(generate_lookup(MAX_WIDTH_HEIGHT, 1, self.max_positional_encoding),
+                                            requires_grad=False)
+                embLookupCol = nn.Parameter(generate_lookup(1, MAX_WIDTH_HEIGHT, self.max_positional_encoding),
+                                            requires_grad=False)
+                if use_local_attention:
                     posEmbLocal = nn.Embedding(num_pos_emb_2d, attention_head_size)
                     embLookupLocal = nn.Parameter(generate_lookup_local(
-                        self.kernel_size, self.positional_encoding_k
+                        self.kernel_size, self.max_positional_encoding
                     ), requires_grad=False)
-                    self.shared_embedding = (posEmbDil,posEmbRow,posEmbCol,posEmbLocal,embLookupDil,embLookupRow,embLookupCol,embLookupLocal)
+                    self.shared_position_embedding = (posEmbDil, posEmbRow, posEmbCol, posEmbLocal, embLookupDil, embLookupRow, embLookupCol, embLookupLocal)
                 else:
-                    self.shared_embedding = (
+                    self.shared_position_embedding = (
                     posEmbDil, posEmbRow, posEmbCol, embLookupDil, embLookupRow, embLookupCol)
             else:
-                self.shared_embedding = None
+                self.shared_position_embedding = None
 
             self.attention_gaussian_blur_trick = attention_gaussian_blur_trick
             self.attention_isotropic_gaussian = attention_isotropic_gaussian
@@ -563,21 +563,21 @@ class BertSelfAttentionDilation(nn.Module):
         self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.dilations = (config.attention_dilation, config.attention_dilation)
         self.kernel_size = config.attention_local_patch_size
-        self.use_local = config.use_local
+        self.use_local_attention = config.use_local_attention
 
         self.positional_encoding = config.positional_encoding
         # Relative positional encoding
         if self.positional_encoding == PositionalEncodingType.Relative:
-            if config.shared_embedding is not None:
-                if self.use_local:
+            if config.shared_position_embedding is not None:
+                if self.use_local_attention:
                     (self.posEmbDil, self.posEmbRow, self.posEmbCol, self.posEmbLocal, self.embLookupDil,
-                    self.embLookupRow, self.embLookupCol, self.embLookupLocal) = config.shared_embedding
+                    self.embLookupRow, self.embLookupCol, self.embLookupLocal) = config.shared_position_embedding
                 else:
                     (self.posEmbDil, self.posEmbRow, self.posEmbCol, self.embLookupDil,
-                     self.embLookupRow, self.embLookupCol) = config.shared_embedding
+                     self.embLookupRow, self.embLookupCol) = config.shared_position_embedding
             else:
-                self.positional_encoding_k = config.positional_encoding_k
-                pk = self.positional_encoding_k
+                self.max_positional_encoding = config.max_positional_encoding
+                pk = self.max_positional_encoding
                 self.num_pos_emb_2d = (2 * pk + 1) * (2 * pk + 1)
                 self.num_pos_emb_1d = 2 * pk + 1
                 self.posEmbDil = nn.Embedding(self.num_pos_emb_2d, self.attention_head_size)
@@ -587,19 +587,19 @@ class BertSelfAttentionDilation(nn.Module):
                 self.embLookupDil = nn.Parameter(generate_lookup(
                     int(MAX_WIDTH_HEIGHT / config.attention_dilation),
                     int(MAX_WIDTH_HEIGHT / config.attention_dilation),
-                    self.positional_encoding_k,
+                    self.max_positional_encoding,
                 ),requires_grad=False)
-                self.embLookupRow = nn.Parameter(generate_lookup(MAX_WIDTH_HEIGHT, 1, self.positional_encoding_k),requires_grad=False)
-                self.embLookupCol = nn.Parameter(generate_lookup(1, MAX_WIDTH_HEIGHT, self.positional_encoding_k),requires_grad=False)
-                if config.use_local:
+                self.embLookupRow = nn.Parameter(generate_lookup(MAX_WIDTH_HEIGHT, 1, self.max_positional_encoding), requires_grad=False)
+                self.embLookupCol = nn.Parameter(generate_lookup(1, MAX_WIDTH_HEIGHT, self.max_positional_encoding), requires_grad=False)
+                if config.use_local_attention:
                     self.embLookupLocal = nn.Parameter(generate_lookup_local(
-                        self.kernel_size, self.positional_encoding_k
+                        self.kernel_size, self.max_positional_encoding
                     ),requires_grad=False)
 
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
-        if config.use_local:
+        if config.use_local_attention:
             self.proj = nn.Linear(4 * config.hidden_size, config.hidden_size)
         else:
             self.proj = nn.Linear(3 * config.hidden_size, config.hidden_size)
@@ -645,7 +645,7 @@ class BertSelfAttentionDilation(nn.Module):
                 R_dil = self.posEmbDil(embLookupDil)
                 R_row = self.posEmbRow(embLookupRow)
                 R_col = self.posEmbCol(embLookupCol)
-                if self.use_local:
+                if self.use_local_attention:
                     R_local = self.posEmbLocal(self.embLookupLocal)
             else:
                 R_dil = R_row = R_col = R_local = None
@@ -667,11 +667,11 @@ class BertSelfAttentionDilation(nn.Module):
                 )
             # local patch attention
             # with timer("attention_local_patch_size"):
-            if self.use_local:
+            if self.use_local_attention:
                 context_layer_local,attention_probs_local = local_attention(value_layer, query_layer, key_layer,R_local, self.kernel_size)
 
             with timer("output projection"):
-                if self.use_local:
+                if self.use_local_attention:
                     context_layer_cat = torch.cat(
                         (
                             context_layer_dil,

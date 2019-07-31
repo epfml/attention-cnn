@@ -60,9 +60,11 @@ config = OrderedDict(
 
     # === BERT IMAGE===
     positional_encoding=PositionalEncodingType.Learned,
-    positional_encoding_k=8,                             # TODO(@bob) rename
-    use_local=False,                                     # TODO(@bob) rename
-    shared_embedding=False,                              # TODO(@bob) rename
+    max_positional_encoding=8,                           # relative position encoding will only consider distances in [-k,k],
+                                                         # and the ones larger than k will be regarded as k.
+    use_local_attention=False,                           # use local attention in BertSelfAttentionDilation or not
+    shared_position_embedding=False,                     # sharing the position embedding and lookup matrices among all
+                                                         # the BertSelfAttentionDilation layers
     attention_type="gaussian",                           # type of attention : "dilation" or "gaussian"
     attention_isotropic_gaussian=False,
     attention_gaussian_blur_trick=False,                 # use a computational trick for gaussian attention to avoid computing the attention probas
