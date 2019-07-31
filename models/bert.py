@@ -227,6 +227,7 @@ class BertConfig(object):
         use_local=False,
         shared_embedding=False,
         use_gaussian_blur_for_attention=False,
+        isotropic_gaussian=False,
     ):
         """Constructs BertConfig.
 
@@ -310,6 +311,7 @@ class BertConfig(object):
                 self.shared_embedding = None
 
             self.use_gaussian_blur_for_attention = use_gaussian_blur_for_attention
+            self.isotropic_gaussian = isotropic_gaussian
         else:
             raise ValueError(
                 "First argument must be either a vocabulary size (int)"
@@ -408,6 +410,7 @@ class GaussianSelfAttention(nn.Module):
     def __init__(self, config, output_attentions=False, keep_multihead_output=False):
         super().__init__()
         self.use_gaussian_blur_for_attention = config.use_gaussian_blur_for_attention
+        self.isotropic_gaussian = config.isotropic_gaussian
 
         self.num_attention_heads = config.num_attention_heads
         # assert config.hidden_size % config.num_attention_heads == 0, "num_attention_heads should divide hidden_size"
@@ -415,38 +418,56 @@ class GaussianSelfAttention(nn.Module):
         self.all_head_size = self.num_attention_heads * config.hidden_size
         self.output_attentions = output_attentions
 
+        # shift of the each gaussian per head
         self.attention_centers = nn.Parameter(
             torch.zeros(self.num_attention_heads, 2).normal_(0.0, 2.0)
         )
-        self.attention_alpha = nn.Parameter(
-            torch.zeros(self.num_attention_heads).normal_(1, 0.1).log()
-        )
 
-        # self.query = nn.Linear(config.hidden_size, self.all_head_size)
-        # self.key = nn.Linear(config.hidden_size, self.all_head_size)
+        if config.isotropic_gaussian:
+            # only one scalar (inverse standard deviation)
+            # initialized to 1 + noise
+            attention_spreads = 1 + torch.zeros(self.num_attention_heads).normal_(0, 0.01)
+        else:
+            # Inverse standart deviation $Sigma^{-1/2}$
+            # 2x2 matrix or a scalar per head
+            # initialized to noisy identity matrix
+            attention_spreads = torch.eye(2).unsqueeze(0).repeat(self.num_attention_heads, 1, 1)
+            attention_spreads += torch.zeros_like(attention_spreads).normal_(0, 0.01)
+
+        self.attention_spreads = nn.Parameter(attention_spreads)
+
         self.value = nn.Linear(self.all_head_size, config.hidden_size)
-        # self.proj = nn.Linear(config.hidden_size, config.hidden_size)
 
         if not config.use_gaussian_blur_for_attention:
-            # relative encoding grid (delta_x, delta_y, delta_x**2, delta_y**2, 1, 1)
+            # relative encoding grid (delta_x, delta_y, delta_x**2, delta_y**2, delta_x * delta_y)
             MAX_WIDTH_HEIGHT = 50
             range_ = torch.arange(MAX_WIDTH_HEIGHT)
             grid = torch.cat([t.unsqueeze(-1) for t in torch.meshgrid([range_, range_])], dim=-1)
             relative_indices = grid.unsqueeze(0).unsqueeze(0) - grid.unsqueeze(-2).unsqueeze(-2)
-            R = torch.cat([relative_indices, relative_indices ** 2, torch.ones_like(relative_indices)], dim=-1)
+            R = torch.cat([relative_indices, relative_indices ** 2, (relative_indices[..., 0] * relative_indices[..., 1]).unsqueeze(-1)], dim=-1)
             R = R.float()
             self.register_buffer("R", R)
             self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
     def get_heads_target_vectors(self):
-        return torch.cat(
-            [
-                self.attention_centers,
-                torch.ones_like(self.attention_centers).float(),
-                self.attention_centers ** 2,
-            ],
-            dim=-1,
-        )
+        if self.isotropic_gaussian:
+            a = c = self.attention_spreads ** 2
+            b = torch.zeros_like(self.attention_spreads)
+        else:
+            # $\Sigma^{-1}$
+            inv_covariance = torch.einsum('hij,hkj->hik', [self.attention_spreads, self.attention_spreads])
+            a, b, c = inv_covariance[:, 0, 0], inv_covariance[:, 0, 1], inv_covariance[:, 1, 1]
+
+        mu_1, mu_2 = self.attention_centers[:, 0], self.attention_centers[:, 1]
+
+        t_h = -1/2 * torch.stack([
+            -2*(a*mu_1 + b*mu_2),
+            -2*(c*mu_2 + b*mu_1),
+            a,
+            c,
+            2 * b
+        ], dim=-1)
+        return t_h
 
     def get_attention_probs(self, width, height):
         """Compute the positional attention for an image of size width x height
@@ -456,8 +477,6 @@ class GaussianSelfAttention(nn.Module):
 
         # Compute attention map for each head
         attention_scores = torch.einsum('ijkld,hd->ijhkl', [self.R[:width,:height,:width,:height,:], self.u])
-        # Apply alpha scale for each head and position
-        attention_scores *= - self.attention_alpha.exp().view(1, 1, -1, 1, 1)
         # Softmax
         attention_probs = torch.nn.Softmax(dim=-1)(attention_scores.view(width, height, self.num_attention_heads, -1))
         attention_probs = attention_probs.view(width, height, self.num_attention_heads, width, height)
@@ -481,7 +500,7 @@ class GaussianSelfAttention(nn.Module):
         kernel_width = kernel_height = 7
         assert kernel_width % 2 == 1 and kernel_height % 2 == 1, 'kernel size should be odd'
 
-        for mean, std_inv in zip(self.attention_centers, self.attention_alpha):
+        for mean, std_inv in zip(self.attention_centers, self.attention_spreads):
             conv_weights = gaussian_kernel_2d(mean, std_inv, size=(kernel_width, kernel_height))
             conv_weights = conv_weights.view(1, 1, kernel_width, kernel_height).repeat(d_total, 1, 1, 1)
             kernels.append(conv_weights)
@@ -883,10 +902,10 @@ class BertEncoder(nn.Module):
     def __init__(self, config, output_attentions=False, keep_multihead_output=False):
         super(BertEncoder, self).__init__()
         self.output_attentions = output_attentions
-        layer = BertLayer(
+        layer_constructor = lambda: BertLayer(
             config, output_attentions=output_attentions, keep_multihead_output=keep_multihead_output
         )
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
+        self.layer = nn.ModuleList([layer_constructor() for _ in range(config.num_hidden_layers)])
 
     def forward(
         self, hidden_states, attention_mask, output_all_encoded_layers=True, head_mask=None

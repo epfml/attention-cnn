@@ -59,13 +59,14 @@ config = OrderedDict(
     positional_encoding_k=8,
     use_local=False,
     shared_embedding=False,
-    attention_type="gaussian", #type of attention : "dilation" or "gaussian"
+    attention_type="gaussian",  # type of attention : "dilation" or "gaussian"
+    isotropic_gaussian=False,
     # use a computational trick for gaussian attention to not compute the attention probas
     use_gaussian_blur_for_attention=False,
     attention_dilation=2,
     attention_patch=5,
     use_resnet=False,
-    classification_only=False,
+    classification_only=True,
     inpainting_w=0.5,
     # concatenate the pixels value by patch of concat_pooling x concat_pooling
     # to redude dimension
@@ -282,7 +283,7 @@ def main():
         if is_best_so_far:
             store_checkpoint("best.checkpoint", model, epoch, mean_test_accuracy.value())
 
-        #writer.flush()
+        # writer.flush()
 
         if config["only_time_one_epoch"]:
             print(timer.summary())
