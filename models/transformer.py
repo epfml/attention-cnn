@@ -30,12 +30,12 @@ class BertImage(nn.Module):
         super().__init__()
         self.timer = timer.default()
 
-        self.with_resnet = config["use_resnet"]
+        self.with_resnet = config["pooling_use_resnet"]
         self.hidden_size = config["hidden_size"]
-        self.concat_pooling = config["concat_pooling"]
-        assert (config["concat_pooling"] == 1) or (
-            not config["use_resnet"]
-        ), "Use either resnet or concat_pooling"
+        self.pooling_concatenate_size = config["pooling_concatenate_size"]
+        assert (config["pooling_concatenate_size"] == 1) or (
+            not config["pooling_use_resnet"]
+        ), "Use either resnet or pooling_concatenate_size"
 
         # self.positional_encoding = PositionalEncoding(
         #     config["positional_encoding"], self.hidden_size
@@ -50,8 +50,8 @@ class BertImage(nn.Module):
                 torch.rand(1, 3, 1024, 1024)
             ).shape
             self.feature_downscale_factor = 1024 // new_width
-        elif self.concat_pooling > 1:
-            num_channels_in = 3 * (self.concat_pooling ** 2)
+        elif self.pooling_concatenate_size > 1:
+            num_channels_in = 3 * (self.pooling_concatenate_size ** 2)
         else:
             num_channels_in = 3
 
@@ -131,7 +131,7 @@ class BertImage(nn.Module):
             # reshape from NCHW to NHWC
             batch_features = batch_features.permute(0, 2, 3, 1)
 
-        elif self.concat_pooling > 1:
+        elif self.pooling_concatenate_size > 1:
 
             def downsample_concatenate(X, kernel):
                 """X is of shape B x H x W x C
@@ -146,10 +146,12 @@ class BertImage(nn.Module):
 
             # reshape from NCHW to NHWC
             batch_features = batch_images.permute(0, 2, 3, 1)
-            batch_features = downsample_concatenate(batch_features, self.concat_pooling)
+            batch_features = downsample_concatenate(batch_features, self.pooling_concatenate_size)
             feature_mask = None
             if batch_mask is not None:
-                feature_mask = batch_mask[:, :: self.concat_pooling, :: self.concat_pooling]
+                feature_mask = batch_mask[
+                    :, :: self.pooling_concatenate_size, :: self.pooling_concatenate_size
+                ]
 
         else:
             batch_features = batch_images

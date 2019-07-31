@@ -26,9 +26,12 @@ import tabulate
 
 timer = default()
 
+# fmt: off
 config = OrderedDict(
     dataset="Cifar10",
     model="bert",
+
+    # === OPTIMIZER ===
     optimizer="SGD",
     optimizer_cosine_lr=False,
     optimizer_warmup_ratio=0.0,  # period of linear increase for lr scheduler
@@ -40,7 +43,8 @@ config = OrderedDict(
     batch_size=300,
     num_epochs=300,
     seed=42,
-    # added for BERT, some are useless
+
+    # === From BERT ===
     vocab_size_or_config_json_file=-1,
     hidden_size=128,  # 768,
     num_hidden_layers=2,
@@ -53,31 +57,31 @@ config = OrderedDict(
     type_vocab_size=2,
     initializer_range=0.02,
     layer_norm_eps=1e-12,
-    # BERT Image specific
-    mask_dimension=5,
+
+    # === BERT IMAGE===
     positional_encoding=PositionalEncodingType.Learned,
-    positional_encoding_k=8,
-    use_local=False,
-    shared_embedding=False,
-    attention_type="gaussian",  # type of attention : "dilation" or "gaussian"
-    isotropic_gaussian=False,
-    # use a computational trick for gaussian attention to not compute the attention probas
-    use_gaussian_blur_for_attention=False,
+    positional_encoding_k=8,                             # TODO(@bob) rename
+    use_local=False,                                     # TODO(@bob) rename
+    shared_embedding=False,                              # TODO(@bob) rename
+    attention_type="gaussian",                           # type of attention : "dilation" or "gaussian"
+    attention_isotropic_gaussian=False,
+    attention_gaussian_blur_trick=False,                 # use a computational trick for gaussian attention to avoid computing the attention probas
     attention_dilation=2,
-    attention_patch=5,
-    use_resnet=False,
-    classification_only=True,
-    inpainting_w=0.5,
-    # concatenate the pixels value by patch of concat_pooling x concat_pooling
-    # to redude dimension
-    concat_pooling=2,
-    # logging specific
+    attention_local_patch_size=5,
+    loss_mask_dimension=5,
+    loss_inpainting_weight=0.5,
+    loss_classification_only=True,
+    pooling_concatenate_size=2,                          # concatenate the pixels value by patch of pooling_concatenate_size x pooling_concatenate_size to redude dimension
+    pooling_use_resnet=False,
+
+    # === LOGGING ===
     only_time_one_epoch=False,  # show timer after 1 epoch and stop
     only_list_parameters=False,
     plot_attention_positions=True,
     experiment_name=None,
     output_dir="./output.tmp",
 )
+# fmt: on
 
 output_dir = "./output.tmp"  # Can be overwritten by a script calling this
 
@@ -155,7 +159,7 @@ def main():
             and config["plot_attention_positions"]
             and config["attention_type"] == "gaussian"
         ):
-            if not config["use_gaussian_blur_for_attention"]:
+            if not config["attention_gaussian_blur_trick"]:
                 plot_attention_positions_all_layers(model, (32, 32), writer, epoch)
             else:
                 # TODO plot gaussian without attention weights
@@ -191,7 +195,7 @@ def main():
             # Compute gradients for the batch
             optimizer.zero_grad()
 
-            if config["use_resnet"]:
+            if config["pooling_use_resnet"]:
                 # , image_out, reconstruction, reconstruction_mask
                 prediction = model(batch_x)  # , batch_mask)
             else:
@@ -212,11 +216,11 @@ def main():
                 # inpainting_loss = ((masked_input - masked_output) ** 2).mean()
 
                 # # TODO weighting of the two losses
-                # if config["classification_only"]:
+                # if config["loss_classification_only"]:
                 #     loss = classification_loss
                 # else:
-                #     loss = classification_loss * (1 - config["inpainting_w"]) + (
-                #         inpainting_loss * config["inpainting_w"]
+                #     loss = classification_loss * (1 - config["loss_inpainting_weight"]) + (
+                #         inpainting_loss * config["loss_inpainting_weight"]
                 #     )
 
             acc = accuracy(prediction, batch_y)
@@ -347,7 +351,7 @@ def get_dataset(test_batch_size=100, shuffle_train=True, num_workers=2, data_roo
     )
 
     training_set = dataset(root=data_root, train=True, download=True, transform=transform_train)
-    training_set = MaskedDataset(training_set, config["mask_dimension"])
+    training_set = MaskedDataset(training_set, config["loss_mask_dimension"])
     test_set = dataset(root=data_root, train=False, download=True, transform=transform_test)
 
     training_loader = torch.utils.data.DataLoader(

@@ -208,26 +208,26 @@ class BertConfig(object):
     def __init__(
         self,
         vocab_size_or_config_json_file,
-        hidden_size=768,
-        num_hidden_layers=12,
-        num_attention_heads=12,
-        intermediate_size=3072,
-        hidden_act="gelu",
-        hidden_dropout_prob=0.1,
-        attention_probs_dropout_prob=0.1,
-        max_position_embeddings=512,
-        type_vocab_size=2,
-        initializer_range=0.02,
-        layer_norm_eps=1e-12,
-        attention_type="gaussian",
-        attention_dilation=8,
-        attention_patch=5,
-        positional_encoding="Learned",
-        positional_encoding_k=8,
-        use_local=False,
-        shared_embedding=False,
-        use_gaussian_blur_for_attention=False,
-        isotropic_gaussian=False,
+        hidden_size=None,
+        num_hidden_layers=None,
+        num_attention_heads=None,
+        intermediate_size=None,
+        hidden_act=None,
+        hidden_dropout_prob=None,
+        attention_probs_dropout_prob=None,
+        max_position_embeddings=None,
+        type_vocab_size=None,
+        initializer_range=None,
+        layer_norm_eps=None,
+        attention_type=None,
+        attention_dilation=None,
+        attention_local_patch_size=None,
+        positional_encoding=None,
+        positional_encoding_k=None,
+        use_local=None,
+        shared_embedding=None,
+        attention_gaussian_blur_trick=None,
+        attention_isotropic_gaussian=None,
     ):
         """Constructs BertConfig.
 
@@ -276,7 +276,7 @@ class BertConfig(object):
             self.layer_norm_eps = layer_norm_eps
             self.attention_type = attention_type
             self.attention_dilation = attention_dilation
-            self.attention_patch = attention_patch
+            self.attention_local_patch_size = attention_local_patch_size
             self.positional_encoding = positional_encoding
             self.positional_encoding_k = positional_encoding_k
             self.use_local = use_local
@@ -310,8 +310,8 @@ class BertConfig(object):
             else:
                 self.shared_embedding = None
 
-            self.use_gaussian_blur_for_attention = use_gaussian_blur_for_attention
-            self.isotropic_gaussian = isotropic_gaussian
+            self.attention_gaussian_blur_trick = attention_gaussian_blur_trick
+            self.attention_isotropic_gaussian = attention_isotropic_gaussian
         else:
             raise ValueError(
                 "First argument must be either a vocabulary size (int)"
@@ -409,8 +409,8 @@ class BertEmbeddings(nn.Module):
 class GaussianSelfAttention(nn.Module):
     def __init__(self, config, output_attentions=False, keep_multihead_output=False):
         super().__init__()
-        self.use_gaussian_blur_for_attention = config.use_gaussian_blur_for_attention
-        self.isotropic_gaussian = config.isotropic_gaussian
+        self.attention_gaussian_blur_trick = config.attention_gaussian_blur_trick
+        self.attention_isotropic_gaussian = config.attention_isotropic_gaussian
 
         self.num_attention_heads = config.num_attention_heads
         # assert config.hidden_size % config.num_attention_heads == 0, "num_attention_heads should divide hidden_size"
@@ -423,7 +423,7 @@ class GaussianSelfAttention(nn.Module):
             torch.zeros(self.num_attention_heads, 2).normal_(0.0, 2.0)
         )
 
-        if config.isotropic_gaussian:
+        if config.attention_isotropic_gaussian:
             # only one scalar (inverse standard deviation)
             # initialized to 1 + noise
             attention_spreads = 1 + torch.zeros(self.num_attention_heads).normal_(0, 0.01)
@@ -438,7 +438,7 @@ class GaussianSelfAttention(nn.Module):
 
         self.value = nn.Linear(self.all_head_size, config.hidden_size)
 
-        if not config.use_gaussian_blur_for_attention:
+        if not config.attention_gaussian_blur_trick:
             # relative encoding grid (delta_x, delta_y, delta_x**2, delta_y**2, delta_x * delta_y)
             MAX_WIDTH_HEIGHT = 50
             range_ = torch.arange(MAX_WIDTH_HEIGHT)
@@ -450,7 +450,7 @@ class GaussianSelfAttention(nn.Module):
             self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
     def get_heads_target_vectors(self):
-        if self.isotropic_gaussian:
+        if self.attention_isotropic_gaussian:
             a = c = self.attention_spreads ** 2
             b = torch.zeros_like(self.attention_spreads)
         else:
@@ -522,7 +522,7 @@ class GaussianSelfAttention(nn.Module):
         assert len(hidden_states.shape) == 4
         b, w, h, c = hidden_states.shape
 
-        if not self.use_gaussian_blur_for_attention:
+        if not self.attention_gaussian_blur_trick:
             attention_probs = self.get_attention_probs(w, h)
             attention_probs = self.dropout(attention_probs)
 
@@ -562,7 +562,7 @@ class BertSelfAttentionDilation(nn.Module):
         self.attention_head_size = config.hidden_size // config.num_attention_heads
         self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.dilations = (config.attention_dilation, config.attention_dilation)
-        self.kernel_size = config.attention_patch
+        self.kernel_size = config.attention_local_patch_size
         self.use_local = config.use_local
 
         self.positional_encoding = config.positional_encoding
@@ -666,7 +666,7 @@ class BertSelfAttentionDilation(nn.Module):
                     value_layer, query_layer, key_layer, dilation=(height, 1), R=R_col
                 )
             # local patch attention
-            # with timer("attention_patch"):
+            # with timer("attention_local_patch_size"):
             if self.use_local:
                 context_layer_local,attention_probs_local = local_attention(value_layer, query_layer, key_layer,R_local, self.kernel_size)
 
