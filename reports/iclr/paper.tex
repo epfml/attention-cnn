@@ -108,7 +108,7 @@ with $\mE_{x_i}$ the embedding of token $x_i$, $\mU_i$ the absolute position enc
   +
   \underbrace{\mathbf{E}_{x_{i}}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k, R} {\color{blue} \mathbf{R}_{i-j}}}_{(b)}
   +
-  % \underbrace{{\color{red} \vu^{\top}} \mathbf{W}_{k, E} \mathbf{E}_{x_{j}}}_{(c)}
+  \underbrace{{\color{red} \vu^{\top}} \mathbf{W}_{k, E} \mathbf{E}_{x_{j}}}_{(c)}
   +
   \underbrace{{\color{red} \vv^{\top}} \mathbf{W}_{k, R} {\color{blue} \mathbf{R}_{i-j}}}_{(d)}
   \label{eq:att_rel}
@@ -173,21 +173,21 @@ In this section, we present an extension of the relative positional encoding int
 to model non-isotropic Gaussians.
 
 \begin{align}
-  f_{\mu, \Sigma}(\vx) = \exp \left(
+  f_{\vmu, \mSigma}(\vx) = \exp \left(
     - \frac 1 2
-    (\vx - \mu)^\top \Sigma^{-1} (\vx - \mu)
+    (\vx - \vmu)^\top \mSigma^{-1} (\vx - \vmu)
   \right)
 \end{align}
 We drop the normalization factor of the Gaussian distribution as it is replaced by the softmax of the attention mechanism.
-The matrix $\Sigma^{-1}$ must be positive semi-definite.
+The matrix $\mSigma^{-1}$ must be positive semi-definite.
 We parametrize it as 
 \begin{align}
-  \Sigma^{-1} = (\Sigma^{-1/2})^\top\Sigma^{-1/2} = \begin{pmatrix}a & b \\ b & c\end{pmatrix}  
+  \mSigma^{-1} = (\mSigma^{-1/2})^\top\mSigma^{-1/2} = \begin{pmatrix}a & b \\ b & c\end{pmatrix}  
 \end{align}
 Our goal is to write the exponent as a dot product of two vectors:
 \begin{itemize}
   \item one vector $R_\vx$ dependent only on $\vx$, the relative positional encoding,
-  \item one vector $\mathbf{t}_h$ dependent only on $\mu$ and $\Sigma$, the attention head.
+  \item one vector $\mathbf{t}_h$ dependent only on $\vmu$ and $\mSigma$, the attention head.
 \end{itemize}
 \begin{align}
   R_\vx &= 
@@ -203,7 +203,7 @@ Our goal is to write the exponent as a dot product of two vectors:
   \left[
   a(x_1 - \mu_1)^2 + 2b(x_1-\mu_1)(x_2 -\mu_2) + c(x_2-\mu_2)^2 
   \right]
-  = - \frac 1 2 (\vx - \mu)^\top \Sigma^{-1} (\vx - \mu)
+  = - \frac 1 2 (\vx - \vmu)^\top \mSigma^{-1} (\vx - \vmu)
 \end{align}
 We can check that setting $b = 0$ and $a=c=\alpha$ recovers the expression of the isotropic Gaussian derived above.
 
