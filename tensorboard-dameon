@@ -1,0 +1,24 @@
+#!/bin/bash
+
+set -e
+
+trap ctrl_c INT
+
+function ctrl_c() {
+        echo 
+	echo "Ctrl-C by user"
+	kill -9 $pid
+	exit
+}
+
+args=$@
+tensorboard_exec="tensorboard"
+
+while true
+do
+	eval "$tensorboard_exec $args &"
+	pid=$!
+	echo "tensorboard running on $pid"
+	sleep 60
+	kill -9 $pid
+done
