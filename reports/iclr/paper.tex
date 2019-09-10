@@ -8,6 +8,17 @@
 \usepackage{hyperref}
 \usepackage{url}
 
+% ADDED BY US
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{cleveref}
+
+\definecolor{red}{HTML}{e74c3c}
+\definecolor{blue}{HTML}{3498db}
+\definecolor{green}{HTML}{2ecc71}
+% END ADDED BY US
+
 
 \title{Formatting Instructions for ICLR 2020 \\ Conference Submissions}
 
@@ -60,7 +71,220 @@ line spaces precede the abstract. The abstract must be limited to one
 paragraph.
 \end{abstract}
 
-\section{Introduction}
+\section{Attention Layer Can Implement CNN}
+
+Our goal is to show that attention layers have the expressive power to learn 
+convolution filter and that we can learn such filters in practice.
+%
+The ability of the Attention mechanism to encode spacial filters (3$\times$3 kernels) 
+depends heavily on how we encode position in the image.
+
+
+Understanding how attention can apply convolutions can help to:
+\begin{itemize}
+  \item find better position encoding scheme,
+  \item explain the need of multiple heads.
+\end{itemize}
+
+We take inspiration from \citep[TransformerXL]{dai2019transformerxl} to define relative positional encoding.
+They decompose the computation of the attention coefficients as follow:
+\begin{align}
+    \mathbf{A}_{i, j}^{\mathrm{abs}} &= (\mE_{x_i} + \mU_i)^\top \mW_q^\top \mW_k (\mE_{x_j} + \mU_j)\\
+  %
+  %
+ &=
+  \underbrace{\mathbf{E}_{x_{i}}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k} \mathbf{E}_{x_{j}}}_{(a)} 
+  +
+  \underbrace{\mathbf{E}_{x_{i}}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k} \mathbf{U}_{j}}_{(b)}
+  +
+  \underbrace{\mathbf{U}_{i}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k} \mathbf{E}_{x_{j}}}_{(c)}
+  +
+  \underbrace{\mathbf{U}_{i}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k} \mathbf{U}_{j}}_{(d)}
+\end{align}
+with $\mE_{x_i}$ the embedding of token $x_i$, $\mU_i$ the absolute position encoding, $\mR_{i-j}$ relative position encoding. They replace all absolute position encoding with relative ones:
+\begin{align}
+  \mathbf{A}_{i, j}^{\mathrm{rel}} &=
+  \underbrace{\mathbf{E}_{x_{i}}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k, E} \mathbf{E}_{x_{j}}}_{(a)}
+  +
+  \underbrace{\mathbf{E}_{x_{i}}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k, R} {\color{blue} \mathbf{R}_{i-j}}}_{(b)}
+  +
+  % \underbrace{{\color{red} \vu^{\top}} \mathbf{W}_{k, E} \mathbf{E}_{x_{j}}}_{(c)}
+  +
+  \underbrace{{\color{red} \vv^{\top}} \mathbf{W}_{k, R} {\color{blue} \mathbf{R}_{i-j}}}_{(d)}
+  \label{eq:att_rel}
+\end{align}
+
+To mimic the CNN computation, each attention head focuses on a pixel at a given relative position.
+Hence reproducing a $3\times 3$ kernel requires 9 attention heads and the ability for each of them to perfectly attend on
+one pixel at a relative position.
+Given that spatial convolution filters are not conditioned on the input data, we set $\mW_{k, E}$ and $\mW_{k, R}$ to 0, leaving only the (d) term in \eqref{eq:att_rel}.
+We further write the attention computation in the 2D setting,
+\begin{align}
+  \mathbf{A}_{i, j}^{\mathrm{conv}} &= \vv^{\top} \mathbf{W}_{k, R} {\color{blue} \mathbf{R}_{\vp_i - \vp_j}}
+\end{align}
+with $\vp_i$ the row and column position of pixel $i$. As both $\vv$ and $\mathbf{W}_{k, R}$ are learnable parameters, we simplify the expression to learn a single vector $\mathbf{t}_h$ for each head $h$.
+
+\subsection{Attention on a Pixel at any Relative Position}
+
+\paragraph{How to discern relative position?} The goal is to reproduce the $3\times 3$ pattern of CNN kernel with attention instead.
+Each head should be able to chose which pixel to attend based on its relative position to the query token $x_i$.
+The most basic attention mechanism is the dot product $(\vp_i - \vp_j)^\top \mathbf{t}_h$ between the relative positions of the input pixels and the relative target positions $\mathbf{t}_h = (x_h, y_h)^\top$.
+The dot product is large for pixels in the same direction as $\mathbf{t}_h$, however it also grows for farther pixels. To be able to focus on a relative pixel position (direction and distance), we propose the following relative position encoding
+\begin{align}
+  \mR_{\Delta} = 
+  \begin{pmatrix} 
+  \Delta_x& \Delta_y& \Delta_x^2& \Delta_y^2& 1& 1
+  \end{pmatrix}^\top
+\end{align}
+Instead of learning the target vector $\mathbf{t}_h$, we parametrize it for each head to attend to the relative pixel position~$(x_h, y_h)$,
+\begin{align}
+  \mathbf{t}_h= 
+  -\alpha_h \begin{pmatrix} 
+  -2 x_h& -2 y_h& 1& 1&  x_h^2&  y_h^2
+  \end{pmatrix}^\top
+\end{align}
+The attention coefficient for head $h$ between pixel $i$ and $j$ is given by the dot product,
+\begin{align}
+  \mR_{\Delta}^\top \mathbf{t}_h = -\alpha_h ( (\Delta_x - x_h)^2 + (\Delta_y - y_h) ^2 ),
+\end{align}
+with $\Delta = \vp_i - \vp_j$. 
+The maximum attention coefficient is 0 when $\Delta = (x_h, y_h)$, i.e. the center of attention of a given head.
+The $\alpha$ coefficient controls how spiky the attention is (analogous to temperature in the softmax).
+\Cref{fig:attention_cnn} gives a representation of the attention weights for a fixed query pixel $i$ and different $\alpha$ and $(x_h, y_h)$.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=1\linewidth]{plots/conv_attention.pdf}
+  \caption{Attention coefficient for different center $i$ and target $j$ with varying $\alpha$ parameters. Target designate the relative position that the head attends to.}
+  \label{fig:attention_cnn}
+\end{figure}
+
+\paragraph{Discussion.} Some relations can be drawn to RBF kernels centered at the target pixels.
+We are expressing a more general form of convolutions where
+\emph{(i)} the input pixels do not follow a grid shape but has any pattern and 
+\emph{(ii)} the inputs are not single pixels but weighted averages of local patches in the image. 
+
+\paragraph{Simplification.} One further simplification is to remove the constant terms of $\mR_{\Delta}$ because the softmax (renormalization) is shift invariant and constant terms for a head are useless. 
+
+
+\subsection{Non Isotropic Gaussian}
+
+In this section, we present an extension of the relative positional encoding introduced above
+to model non-isotropic Gaussians.
+
+\begin{align}
+  f_{\mu, \Sigma}(\vx) = \exp \left(
+    - \frac 1 2
+    (\vx - \mu)^\top \Sigma^{-1} (\vx - \mu)
+  \right)
+\end{align}
+We drop the normalization factor of the Gaussian distribution as it is replaced by the softmax of the attention mechanism.
+The matrix $\Sigma^{-1}$ must be positive semi-definite.
+We parametrize it as 
+\begin{align}
+  \Sigma^{-1} = (\Sigma^{-1/2})^\top\Sigma^{-1/2} = \begin{pmatrix}a & b \\ b & c\end{pmatrix}  
+\end{align}
+Our goal is to write the exponent as a dot product of two vectors:
+\begin{itemize}
+  \item one vector $R_\vx$ dependent only on $\vx$, the relative positional encoding,
+  \item one vector $\mathbf{t}_h$ dependent only on $\mu$ and $\Sigma$, the attention head.
+\end{itemize}
+\begin{align}
+  R_\vx &= 
+  \begin{pmatrix}
+    x_1      & x_2       & x_1      & x_2      & x_1^2   & x_2^2 & x_1 x_2 & 1        & 1         & 1
+  \end{pmatrix}\\
+  \mathbf{t}_h &= -\frac{1}{2}
+  \begin{pmatrix}
+    -2a\mu_1 & -2c \mu_2 & -2b\mu_2 & -2b\mu_1 & a       & c     & 2b      & a\mu_1^2 & c\mu_2^2 & 2b\mu_1 \mu_2
+  \end{pmatrix}\\
+  R_\vx^\top \mathbf{t}_h &=
+  -\frac{1}{2} 
+  \left[
+  a(x_1 - \mu_1)^2 + 2b(x_1-\mu_1)(x_2 -\mu_2) + c(x_2-\mu_2)^2 
+  \right]
+  = - \frac 1 2 (\vx - \mu)^\top \Sigma^{-1} (\vx - \mu)
+\end{align}
+We can check that setting $b = 0$ and $a=c=\alpha$ recovers the expression of the isotropic Gaussian derived above.
+
+
+\subsection{Extensions of the Attention Mechanism?} 
+\begin{itemize}
+
+  \item Does the terms (a) (b) (c) allow to condition the CNN filters on the input data?
+\end{itemize}
+
+
+\section{Experiments}
+
+We want to validate that not only Transformer architecture can express CNN filters
+but that it can also learn such filters with SGD from the data.
+%
+It has already been shown by \citep{belloAttentionAugmentedConvolutional2019} that 
+adding attention features to CNNs can improve performence on Cifar-100 and ImageNet.
+%
+We want to stick to a fully attentional model, and show that it matches its siblings ResNet of equivalent depth.
+
+\subsection{Performance Against ResNet}
+
+We design a smaller ResNet (i.e. ResNet10) which have similar number of layers as our transformer.
+The sizes of the models are displayed in Table~\ref{tab:parameter_size}. 
+
+\begin{table}
+  \centering
+  \begin{tabular}{cc}
+    \toprule
+    Model & Number of parameters\\
+    \midrule
+    ResNet10 & 4.9M\\
+    BERT 4 layers & 1.85M\\
+    BERT 6 layers & 9.56M \\
+    \bottomrule
+  \end{tabular}
+  \caption{Number of parameters per model.}
+  \label{tab:parameter_size}
+\end{table}
+
+\begin{figure}[h!]
+\includegraphics[width=.16\linewidth]{plots/attention/layer_0.png}
+\includegraphics[width=.16\linewidth]{plots/attention/layer_1.png}
+\includegraphics[width=.16\linewidth]{plots/attention/layer_2.png}
+\includegraphics[width=.16\linewidth]{plots/attention/layer_3.png}
+\includegraphics[width=.16\linewidth]{plots/attention/layer_4.png}
+\includegraphics[width=.16\linewidth]{plots/attention/layer_5.png}
+\caption{Contours of attention weights per layer for the 6 layers fully attentional model.}
+\end{figure}
+
+\begin{figure}[h!]
+\includegraphics[width=.13\linewidth]{plots/attention_training/layer_3_0.png}
+\includegraphics[width=.13\linewidth]{plots/attention_training/layer_3_1.png}
+\includegraphics[width=.13\linewidth]{plots/attention_training/layer_3_2.png}
+\includegraphics[width=.13\linewidth]{plots/attention_training/layer_3_3.png}
+\includegraphics[width=.13\linewidth]{plots/attention_training/layer_3_4.png}
+\includegraphics[width=.13\linewidth]{plots/attention_training/layer_3_5.png}
+\includegraphics[width=.13\linewidth]{plots/attention_training/layer_3_6.png}
+\caption{Contours of attention weights during training (300 epochs) at layer 3.}
+\end{figure}
+
+\begin{figure}[h]
+  \includegraphics[width=.4\linewidth]{plots/eval_accuracy_plot.png}
+  \hfill
+  \includegraphics[width=.6\linewidth]{plots/eval_accuracy_legend.png}
+  \caption{Evaluation accuracy on CIFAR-10 of a small ResNet and two Gaussian Attention models.}
+\end{figure}
+
+
+
+
+
+\section{Convolutional Layer}
+
+A convolution layer is defined by the size of its kernel
+The output of one layer of convolution for an input $\mX \in \R^{W\times H \times C}$ is
+% \begin{align}
+%   \mX'[r,c] &= 
+% \end{align}
+
 
 \subsubsection*{Author Contributions}
 If you'd like to, you may include  a section for author contributions as is done
