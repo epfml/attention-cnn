@@ -183,7 +183,7 @@ class BertImage(nn.Module):
                 output_all_encoded_layers=False,  # TODO
             )[0]
 
-        # max pool for representation (features for classification)
+        # mean pool for representation (features for classification)
         cls_representation = representations.view(b, -1, representations.shape[-1]).mean(dim=1)
         cls_prediction = self.classifier(cls_representation)
 
