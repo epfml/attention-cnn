@@ -14,6 +14,9 @@
 \usepackage{xcolor}
 \usepackage{cleveref}
 
+\usepackage{todonotes}
+\setlength{\marginparwidth}{3.4cm}
+
 \definecolor{red}{HTML}{e74c3c}
 \definecolor{blue}{HTML}{3498db}
 \definecolor{green}{HTML}{2ecc71}
@@ -73,17 +76,56 @@ paragraph.
 
 \section{Introduction}
 
+Attention mechanism were introduced in Neural Machine Translation to better handle long range dependencies and align pairs of sentences \citep{Bahdanau2015attention}.
+
 \section{Background on Attention Mechanism and Related Work}
+
+We briefly recall the formulation of standard CNN layers and Self-Attention layers using unified notation.
 
 \subsection{Convolution Layer}
 
-A convolution layer is defined by the size of its kernel
-The output of one layer of convolution for an input $\mX \in \R^{W\times H \times C}$ is
-% \begin{align}
-%   \mX'[r,c] &= 
-% \end{align}
+A convolution layer is defined by its kernel size $K$ (assuming square kernel for simplicity), the number of input channel $C_{in}$ and the number of output channel $C_{out}$. 
+It is parametrized by a kernel tensor $\tW~\in~\R^{K\times K \times C_{out} \times C_{in}}$ and a bias vector $\vb~\in~\R^{C_{out}}$.
+Given an input image $\tX~\in~\R^{W\times H \times C}$ of width $W$, height $H$ and $C$ channels, 
+the output of the convolution layer is given by,
+%
+\begin{align}
+  \tY_{i,j,:} = 
+  \vb 
+  +
+  \sum_{(m, n) \in \{\lfloor (K-1) / 2 \rfloor, \dots, \lfloor K / 2 \rfloor\}^2}
+  \mW_{m,n,:,:}
+  \tX_{i+m, j+n, :}
+\end{align}
+%
 
-\subsection{Self Attention Layer}
+
+\subsection{Self-Attention Layer}
+
+A Self-Attention layer is defined by its hidden dimension $d_{h}$ and its number of heads $K$. \todo{JB: same as size of the CNN kernel, we point that they are related ($K^2$) but need clarify notation} %
+It is parametrized by
+$\tW^Q \in \R^{K \times d \times d_{h}}$ query layer, $\tW^V \in \R^{K \times d \times d_{h}}$ key layer, $\tW^V \in \R^{K \times d \times d_{h}}$ value layer, a projection layer $\tW^Q \in \R^{K \times d_{h} \times d}$ and output layer $\mW^O \in \R^{(Kd_{h})\times d}$. 
+%
+Applied to an input $\mX \in \R^{T\times d}$, the output of the Self-Attention layer is computed as,
+%
+\begin{align}
+  \mA_k &= \operatorname{softmax}
+  \left(
+    (\mX \mW_k^K)(\mX \mW_k^Q)^\top
+  \right)\,, \\
+  %
+  \mH_{t,:} &= 
+  \sum_{k \in {1,\dots, K}} 
+  \mA_k
+  \mX
+  \mW_k^P
+  \,,\\
+  %
+  \mY_{t,:} &= \mH_{t,:} \mW^O + \mX_{t,:}\,,
+\end{align}
+where the $\operatorname{softmax}(\cdot)$ is taken over all the dimensions of the tensor but the first one. For simplicity, we exclude the batch normalization layers.%
+\todo{JB: check dimensions and readability}%
+
 
 \subsection{Attention Mechanism in Vision}
 
@@ -107,8 +149,8 @@ Successful work to use attention on images \citep{ramachandran2019standaloneself
     % Images
     \bottomrule
   \end{tabular}
-  \caption{Type of position encoding used by transformers models applied to text (\emph{top}) and images (\emph{bottom}). 
-  When multiple types have been tried by the authors, we report the one advised.}
+  \caption{Types of position encoding used by transformers models applied to text (\emph{top}) and images (\emph{bottom}). 
+  When multiple encoding types have been tried, we report the one advised by the authors.}
   \label{tab:relwork_attention}
 \end{table}
 
