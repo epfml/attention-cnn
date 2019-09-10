@@ -71,7 +71,49 @@ line spaces precede the abstract. The abstract must be limited to one
 paragraph.
 \end{abstract}
 
-\section{Attention Layer Can Implement CNN}
+\section{Introduction}
+
+\section{Background on Attention Mechanism and Related Work}
+
+\subsection{Convolution Layer}
+
+A convolution layer is defined by the size of its kernel
+The output of one layer of convolution for an input $\mX \in \R^{W\times H \times C}$ is
+% \begin{align}
+%   \mX'[r,c] &= 
+% \end{align}
+
+\subsection{Self Attention Layer}
+
+\subsection{Attention Mechanism in Vision}
+
+Successful work to use attention on images \citep{ramachandran2019standaloneselfattention,belloAttentionAugmentedConvolutional2019}.
+
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{lccc}
+    \toprule
+    Model&relative&sinusoids&learned\\
+    \midrule
+    \cite{vaswani17attentionisallyouneed} & & \checkmark\\
+    \cite{radford2018gpt2} & & & \checkmark\\
+    \cite{devlin2018bert} & & & \checkmark\\
+    \cite{dai2019transformerxl} & \checkmark & \checkmark \\
+    \cite{yang2019xlnet}  & \checkmark & \checkmark \\
+    \midrule
+    \cite{belloAttentionAugmentedConvolutional2019} & \checkmark & & \checkmark \\
+    \cite{ramachandran2019standaloneselfattention} & \checkmark & & \checkmark \\
+    % Images
+    \bottomrule
+  \end{tabular}
+  \caption{Type of position encoding used by transformers models applied to text (\emph{top}) and images (\emph{bottom}). 
+  When multiple types have been tried by the authors, we report the one advised.}
+  \label{tab:relwork_attention}
+\end{table}
+
+
+\section{Attention Layer Can Implement Convolution Layer}
 
 Our goal is to show that attention layers have the expressive power to learn 
 convolution filter and that we can learn such filters in practice.
@@ -207,8 +249,10 @@ Our goal is to write the exponent as a dot product of two vectors:
 \end{align}
 We can check that setting $b = 0$ and $a=c=\alpha$ recovers the expression of the isotropic Gaussian derived above.
 
+\subsection{Implications to Sinusoid or Learned Positional Encoding} 
 
-\subsection{Extensions of the Attention Mechanism?} 
+
+\subsection{Exploit Attention on Features?} 
 \begin{itemize}
 
   \item Does the terms (a) (b) (c) allow to condition the CNN filters on the input data?
@@ -245,7 +289,7 @@ The sizes of the models are displayed in Table~\ref{tab:parameter_size}.
   \label{tab:parameter_size}
 \end{table}
 
-\begin{figure}[h!]
+\begin{figure}[h]
 \includegraphics[width=.16\linewidth]{plots/attention/layer_0.png}
 \includegraphics[width=.16\linewidth]{plots/attention/layer_1.png}
 \includegraphics[width=.16\linewidth]{plots/attention/layer_2.png}
@@ -255,7 +299,7 @@ The sizes of the models are displayed in Table~\ref{tab:parameter_size}.
 \caption{Contours of attention weights per layer for the 6 layers fully attentional model.}
 \end{figure}
 
-\begin{figure}[h!]
+\begin{figure}[h]
 \includegraphics[width=.13\linewidth]{plots/attention_training/layer_3_0.png}
 \includegraphics[width=.13\linewidth]{plots/attention_training/layer_3_1.png}
 \includegraphics[width=.13\linewidth]{plots/attention_training/layer_3_2.png}
@@ -275,20 +319,13 @@ The sizes of the models are displayed in Table~\ref{tab:parameter_size}.
 
 
 
+\section{Discussion}
 
 
-\section{Convolutional Layer}
 
-A convolution layer is defined by the size of its kernel
-The output of one layer of convolution for an input $\mX \in \R^{W\times H \times C}$ is
-% \begin{align}
-%   \mX'[r,c] &= 
-% \end{align}
-
-
-\subsubsection*{Author Contributions}
-If you'd like to, you may include  a section for author contributions as is done
-in many journals. This is optional and at the discretion of the authors.
+% \subsubsection*{Author Contributions}
+% If you'd like to, you may include  a section for author contributions as is done
+% in many journals. This is optional and at the discretion of the authors.
 
 \subsubsection*{Acknowledgments}
 Use unnumbered third level headings for the acknowledgments. All
@@ -298,8 +335,8 @@ acknowledgments, including those to funding agencies, go at the end of the paper
 \bibliography{bibliography}
 \bibliographystyle{iclr2020_conference}
 
-\appendix
-\section{Appendix}
-You may include other additional sections here. 
+% \appendix
+% \section{Appendix}
+% You may include other additional sections here. 
 
 \end{document}
