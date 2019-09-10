@@ -74,7 +74,7 @@ def generate_lookup(H, W, k):
                 for yj in range(W):
                     difx = 0 if H == 1 else min(max(0, xi - xj + k), 2 * k) # considers special cases for row and column attentions
                     dify = 0 if W == 1 else min(max(0, yi - yj + k), 2 * k)
-                    lkup[xi][yi][xj][yj] = difx * (1 if W==1 else k) + dify
+                    lkup[xi][yi][xj][yj] = difx * (1 if W == 1 else k) + dify
 
     return lkup
 
