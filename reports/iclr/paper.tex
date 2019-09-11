@@ -13,6 +13,7 @@
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{cleveref}
+\usepackage{multirow}
 
 \usepackage{todonotes}
 \setlength{\marginparwidth}{3.4cm}
@@ -72,19 +73,58 @@ right-hand margins. Use 10~point type, with a vertical spacing of 11~points.
 The word \textsc{Abstract} must be centered, in small caps, and in point size 12. Two
 line spaces precede the abstract. The abstract must be limited to one
 paragraph.
+Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod
+tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,
+quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
+consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse
+cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non
+proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
 \end{abstract}
 
 \section{Introduction}
 
-Attention mechanism were introduced in Neural Machine Translation to better handle long range dependencies and align pairs of sentences \citep{Bahdanau2015attention}.
+Recent advances in Natural Language Processing (NLP) are due to pretraining of large models based on the Transformers architecture~\citep{vaswani17attentionisallyouneed}. 
+%
+%
+How Transformers process input text differs significantly from Recurrent Neural Networks as it does not ingest the text from left to right (or right to left) but each token representation can leverage all other tokens of the sentence.
+% 
+The core of Transformers resides in the Self-Attention mechanism.
+%
+The attention mechanism was originally introduced in Neural Machine Translation to better handle long range dependencies and align pairs of sentences to translate~\citep{Bahdanau2015attention}.
+
+The success of such architectures in NLP made us reconsider the absolute dominance of the Convolutional Layers in vision and question its supremacy.
+%
+Applying the transformer architecture to images is only stepping up one dimension but involves some technical challenges of scale.
+%
+In \Cref{sec:background} we review these challenges and present advances using Transformers on images.
+
+\todo{JB: Need to introduce multi-head before}
+We show in \Cref{sec:background} that this success is not so surprising. 
+%
+In fact, Self-Attention layers have the expressive power to encode CNN layers under very basic conditions: (i) positional encoding must be relative to the position of the computed value, (ii) self-attention requires multiple heads (iii) positional encoding can be fixed to pixel position difference with second order combinations. %
+\todo{JB: I don't show that (iii) is necessary but it's an example, not sure how to state that it does not require a crazy encoding schema.}
+%
+We show that Self-Attention layers generalize CNN layers to not only learn the filters but also the position of the ``attended'' pixels.
+
+The ability for Self-Attention layer to express CNN does not ensure that such filters are learnable.
+%
+Through experiments, we demonstrate that standalone self-attention models can perform as well as well established ResNet.
+%
+Our experimental part (\cref{sec:experiments}) focuses more on the interpretation of this expressive power and investigate different type of positional encoding.
+%
+It is particularly interesting to study such positional encoding schema on images, where we have a good intuition, to then transfer the lessons learned to NLP, where distances between words and absolute positions in the sentence can vary greatly between languages and seem less concrete.
+%
 
 \section{Background on Attention Mechanism and Related Work}
+\label{sec:background}
 
-We briefly recall the formulation of standard CNN layers and Self-Attention layers using unified notation.
+We first recall the formulation of standard CNN layers and Self-Attention layers using unified notation.
+We then review how recent lines of work have incorporated Self-Attention layers into classical ResNet architecture for vision \citep{ramachandran2019standaloneselfattention,belloAttentionAugmentedConvolutional2019}.
+
 
 \subsection{Convolution Layer}
 
-A convolution layer is defined by its kernel size $K$ (assuming square kernel for simplicity), the number of input channel $C_{in}$ and the number of output channel $C_{out}$. 
+A convolution layer is defined by a kernel size $K$ (assuming square kernel for simplicity), a number of input channel $C_{in}$ and a number of output channel $C_{out}$. 
 It is parametrized by a kernel tensor $\tW~\in~\R^{K\times K \times C_{out} \times C_{in}}$ and a bias vector $\vb~\in~\R^{C_{out}}$.
 Given an input image $\tX~\in~\R^{W\times H \times C}$ of width $W$, height $H$ and $C$ channels, 
 the output of the convolution layer is given by,
@@ -123,39 +163,55 @@ Applied to an input $\mX \in \R^{T\times d}$, the output of the Self-Attention l
   %
   \mY_{t,:} &= \mH_{t,:} \mW^O + \mX_{t,:}\,,
 \end{align}
-where the $\operatorname{softmax}(\cdot)$ is taken over all the dimensions of the tensor but the first one. For simplicity, we exclude the batch normalization layers.%
+where the $\operatorname{softmax}(\cdot)$ is taken over all the dimensions of the tensor but the first one. For simplicity, we exclude the batch normalization layers and constant factors.%
 \todo{JB: check dimensions and readability}%
 
 
 \subsection{Attention Mechanism in Vision}
 
-Successful work to use attention on images \citep{ramachandran2019standaloneselfattention,belloAttentionAugmentedConvolutional2019}.
+A recent trend emerged using Self-Attention to solve vision tasks.
+%
+It is mainly motivated by the ability of attention mechanism to model long range dependencies across different part of images and help solving Visual Question Answering tasks. \todo{JB: cite}
+% 
+Successful works have reached the level of accuracy of ResNets on classification tasks for Cifar and ImageNet datasets. 
+%
+Along with these impressive results, \cite{belloAttentionAugmentedConvolutional2019} advocate for using Self-Attention layers along with classical convolutions to reach best performance.
+%
+\cite{ramachandran2019standaloneselfattention} show that even standalone Self-Attention can be enough and propose strategies to downsample the image to reduce the number of pixel-to-pixel attention score to compute and store in memory.
 
+
+There are two main challenges in reusing Self-Attention, originally designed for text, for images:
+\paragraph{Positional Encoding.}
+%
+\paragraph{Downsampling.}
 
 \begin{table}[h]
   \centering
-  \begin{tabular}{lccc}
+  \begin{tabular}{lcccc}
     \toprule
-    Model&relative&sinusoids&learned\\
+    \multirow{2}{*}{Model}&\multicolumn{3}{c}{type of positional encoding}&\multirow{2}{*}{relative}\\
+    \cmidrule(r){2-4}
+    &sinusoids&learned&quadratic\\
     \midrule
-    \cite{vaswani17attentionisallyouneed} & & \checkmark\\
-    \cite{radford2018gpt2} & & & \checkmark\\
-    \cite{devlin2018bert} & & & \checkmark\\
-    \cite{dai2019transformerxl} & \checkmark & \checkmark \\
-    \cite{yang2019xlnet}  & \checkmark & \checkmark \\
+    \cite{vaswani17attentionisallyouneed} & \checkmark\\
+    \cite{radford2018gpt2} & & \checkmark\\
+    \cite{devlin2018bert} & & \checkmark\\
+    \cite{dai2019transformerxl} & \checkmark & & & \checkmark \\
+    \cite{yang2019xlnet}  & \checkmark & & & \checkmark \\
     \midrule
-    \cite{belloAttentionAugmentedConvolutional2019} & \checkmark & & \checkmark \\
-    \cite{ramachandran2019standaloneselfattention} & \checkmark & & \checkmark \\
-    % Images
+    \cite{belloAttentionAugmentedConvolutional2019} & & \checkmark && \checkmark \\
+    \cite{ramachandran2019standaloneselfattention} & & \checkmark && \checkmark \\
+    Our work & & & \checkmark & \checkmark \\
     \bottomrule
   \end{tabular}
-  \caption{Types of position encoding used by transformers models applied to text (\emph{top}) and images (\emph{bottom}). 
+  \caption{Types of positional encoding used by transformers models applied to text (\emph{top}) and images (\emph{bottom}). 
   When multiple encoding types have been tried, we report the one advised by the authors.}
   \label{tab:relwork_attention}
 \end{table}
 
 
-\section{Attention Layer Can Implement Convolution Layer}
+\section{Self-Attention Layer Can Implement Convolution Layer}
+\label{sec:attention_can_implement_cnn}
 
 Our goal is to show that attention layers have the expressive power to learn 
 convolution filter and that we can learn such filters in practice.
@@ -291,7 +347,7 @@ Our goal is to write the exponent as a dot product of two vectors:
 \end{align}
 We can check that setting $b = 0$ and $a=c=\alpha$ recovers the expression of the isotropic Gaussian derived above.
 
-\subsection{Implications to Sinusoid or Learned Positional Encoding} 
+\subsection{Implications to Sinusoid and Learned Positional Encoding} 
 
 
 \subsection{Exploit Attention on Features?} 
@@ -302,6 +358,7 @@ We can check that setting $b = 0$ and $a=c=\alpha$ recovers the expression of th
 
 
 \section{Experiments}
+\label{sec:experiments}
 
 We want to validate that not only Transformer architecture can express CNN filters
 but that it can also learn such filters with SGD from the data.
@@ -362,6 +419,7 @@ The sizes of the models are displayed in Table~\ref{tab:parameter_size}.
 
 
 \section{Discussion}
+\label{sec:discussion}
 
 
 
