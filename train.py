@@ -68,11 +68,6 @@ config = OrderedDict(
     attention_type="gaussian",                           # type of attention : "dilation" or "gaussian"
     attention_isotropic_gaussian=False,
     attention_gaussian_blur_trick=False,                 # use a computational trick for gaussian attention to avoid computing the attention probas
-    attention_dilation=2,
-    attention_local_patch_size=5,
-    loss_mask_dimension=5,
-    loss_inpainting_weight=0.5,
-    loss_classification_only=True,
     pooling_concatenate_size=2,                          # concatenate the pixels value by patch of pooling_concatenate_size x pooling_concatenate_size to redude dimension
     pooling_use_resnet=False,
 
@@ -174,7 +169,7 @@ def main():
         time_i = 0
         loader_time_context = timer("loader")
         loader_time_context.__enter__()
-        for batch_x, batch_y, batch_mask in tqdm(training_loader):
+        for batch_x, batch_y in tqdm(training_loader):
 
             loader_time_context.__exit__(None, None, None)
             with timer("move_to_device"):
@@ -200,21 +195,6 @@ def main():
                 classification_loss = criterion(prediction, batch_y)
                 loss = classification_loss
 
-                # TODO check mask is 1 for keep and 0 for hide
-                # mask_selector = ~reconstruction_mask.unsqueeze(1)
-                # masked_input = torch.masked_select(reconstruction, mask_selector)
-                # masked_output = torch.masked_select(image_out, mask_selector)
-
-                # inpainting_loss = ((masked_input - masked_output) ** 2).mean()
-
-                # # TODO weighting of the two losses
-                # if config["loss_classification_only"]:
-                #     loss = classification_loss
-                # else:
-                #     loss = classification_loss * (1 - config["loss_inpainting_weight"]) + (
-                #         inpainting_loss * config["loss_inpainting_weight"]
-                #     )
-
             acc = accuracy(prediction, batch_y)
 
             with timer("backward"):
@@ -224,12 +204,6 @@ def main():
             with timer("weights_update"):
                 optimizer.step()
 
-            # writer.add_scalar(
-            #     "train/classification_loss", classification_loss / config["batch_size"], global_step
-            # )
-            # writer.add_scalar(
-            #     "train/inpainting_loss", inpainting_loss / config["batch_size"], global_step
-            # )
             writer.add_scalar("train/loss", loss, global_step)
             writer.add_scalar("train/accuracy", acc, global_step)
 
@@ -345,7 +319,6 @@ def get_dataset(test_batch_size=100, shuffle_train=True, num_workers=2, data_roo
     )
 
     training_set = dataset(root=data_root, train=True, download=True, transform=transform_train)
-    training_set = MaskedDataset(training_set, config["loss_mask_dimension"])
     test_set = dataset(root=data_root, train=False, download=True, transform=transform_test)
 
     training_loader = torch.utils.data.DataLoader(
