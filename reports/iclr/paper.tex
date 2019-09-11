@@ -94,12 +94,12 @@ The attention mechanism was originally introduced in Neural Machine Translation 
 
 The success of such architectures in NLP made us reconsider the absolute dominance of the Convolutional Layers in vision and question its supremacy.
 %
-Applying the transformer architecture to images is only stepping up one dimension but involves some technical challenges of scale.
+Applying the transformer architecture from text to images is only stepping up one dimension but involves some technical challenges of scale.
 %
-In \Cref{sec:background} we review these challenges and present advances using Transformers on images.
+In \cref{sec:background} we review these challenges and present advances using Transformers on images.
 
 \todo{JB: Need to introduce multi-head before}
-We show in \Cref{sec:background} that this success is not so surprising. 
+We show in \cref{sec:attention_can_implement_cnn} that this success is not so surprising. 
 %
 In fact, Self-Attention layers have the expressive power to encode CNN layers under very basic conditions: (i) positional encoding must be relative to the position of the computed value, (ii) self-attention requires multiple heads (iii) positional encoding can be fixed to pixel position difference with second order combinations. %
 \todo{JB: I don't show that (iii) is necessary but it's an example, not sure how to state that it does not require a crazy encoding schema.}
@@ -110,7 +110,7 @@ The ability for Self-Attention layer to express CNN does not ensure that such fi
 %
 Through experiments, we demonstrate that standalone self-attention models can perform as well as well established ResNet.
 %
-Our experimental part (\cref{sec:experiments}) focuses more on the interpretation of this expressive power and investigate different type of positional encoding.
+Our experiments (in \cref{sec:experiments}) focus more on the interpretation of this expressive power and investigate different type of positional encoding.
 %
 It is particularly interesting to study such positional encoding schema on images, where we have a good intuition, to then transfer the lessons learned to NLP, where distances between words and absolute positions in the sentence can vary greatly between languages and seem less concrete.
 %
@@ -149,19 +149,23 @@ $\tW^Q \in \R^{K \times d \times d_{h}}$ query layer, $\tW^V \in \R^{K \times d 
 Applied to an input $\mX \in \R^{T\times d}$, the output of the Self-Attention layer is computed as,
 %
 \begin{align}
-  \mA_k &= \operatorname{softmax}
-  \left(
-    (\mX \mW_k^K)(\mX \mW_k^Q)^\top
-  \right)\,, \\
+  \mA_k &= 
+    (\mX \mW_k^Q)(\mX \mW_k^K)^\top
+  \,, \label{eq:att_coeff}\\
   %
   \mH_{t,:} &= 
-  \sum_{k \in {1,\dots, K}} 
-  \mA_k
+  \sum_{k \in \{1,\dots, K\}} 
+  \operatorname{softmax}
+  \left(
+    \mA_k
+  \right)
   \mX
+  \mW_k^V
   \mW_k^P
   \,,\\
   %
   \mY_{t,:} &= \mH_{t,:} \mW^O + \mX_{t,:}\,,
+  \label{eq:attention}
 \end{align}
 where the $\operatorname{softmax}(\cdot)$ is taken over all the dimensions of the tensor but the first one. For simplicity, we exclude the batch normalization layers and constant factors.%
 \todo{JB: check dimensions and readability}%
@@ -213,58 +217,80 @@ There are two main challenges in reusing Self-Attention, originally designed for
 \section{Self-Attention Layer Can Implement Convolution Layer}
 \label{sec:attention_can_implement_cnn}
 
+% explain the plan to show expressivity
 Our goal is to show that attention layers have the expressive power to learn 
 convolution filter and that we can learn such filters in practice.
 %
 The ability of the Attention mechanism to encode spacial filters (3$\times$3 kernels) 
 depends heavily on how we encode position in the image.
 
+\subsection{Relative Position Encoding and Translation Equivariance}
+\label{ssec:relative_position_encoding}
 
-Understanding how attention can apply convolutions can help to:
-\begin{itemize}
-  \item find better position encoding scheme,
-  \item explain the need of multiple heads.
-\end{itemize}
-
-We take inspiration from \citep[TransformerXL]{dai2019transformerxl} to define relative positional encoding.
-They decompose the computation of the attention coefficients as follow:
+Note that the Self-Attention mechanism (\ref{eq:attention}) is equivarient to reordering.
+%
+It means that shuffling the order of the tokens does not affect the meaning extracted by the model.
+%
+To alleviate this problem, an embedding is learned for each position in a sentence (or pixel in an image) and added to the representation of the token before applying self-attention.
 \begin{align}
-    \mathbf{A}_{i, j}^{\mathrm{abs}} &= (\mE_{x_i} + \mU_i)^\top \mW_q^\top \mW_k (\mE_{x_j} + \mU_j)\\
+  \mX_{t,:} = \mE_{x_t} + \mP_t\,,
+\end{align}
+where $\mE_{x_t}$ is the learned vector representation of the $x_t$ token and $\mP$ is a position embedding matrix defined up to a maximum length, but it could be any function that returns a vector representation of the position.
+
+Relative position encoding was introduced by \cite{dai2019transformerxl} in TransformerXL. 
+%
+The main idea is to use the position difference between the query token (token we compute the representation of) and the key token (token we attend) instead of only the absolute position of the key token.
+%
+The computation of the attention coefficients (\cref{eq:att_coeff}) can be decomposed as follows:
+%
+\begin{align}
+    \mathbf{A}_{i, j}^{\mathrm{abs}} 
+    &= (\mE_{x_i} + \mP_i) \mW^Q (\mW^K)^\top (\mE_{x_j} + \mP_j)^\top\\
   %
   %
  &=
-  \underbrace{\mathbf{E}_{x_{i}}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k} \mathbf{E}_{x_{j}}}_{(a)} 
+  \underbrace{\mE_{x_{i}} \mW^{Q} (\mW^K)^\top \mE_{x_{j}}^\top}_{(a)} 
   +
-  \underbrace{\mathbf{E}_{x_{i}}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k} \mathbf{U}_{j}}_{(b)}
+  \underbrace{\mE_{x_{i}} \mW^{Q} (\mW^{K})^\top \mP_{j}^\top}_{(b)}
   +
-  \underbrace{\mathbf{U}_{i}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k} \mathbf{E}_{x_{j}}}_{(c)}
+  \underbrace{\mP_{i}\mW^{Q} (\mW^{K})^\top \mE_{x_{j}}}_{(c)}
   +
-  \underbrace{\mathbf{U}_{i}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k} \mathbf{U}_{j}}_{(d)}
+  \underbrace{\mP_{i} \mW^{Q} (\mW^{K})^\top \mP_{j}}_{(d)}\,.
 \end{align}
-with $\mE_{x_i}$ the embedding of token $x_i$, $\mU_i$ the absolute position encoding, $\mR_{i-j}$ relative position encoding. They replace all absolute position encoding with relative ones:
+\todo{JB: maybe better notation $\mK$ for $\mW^K$}
+To simplify the notation, we considered only one attention head and dropped the subscript $k$. They replace all absolute position encoding with relative ones:
 \begin{align}
   \mathbf{A}_{i, j}^{\mathrm{rel}} &=
-  \underbrace{\mathbf{E}_{x_{i}}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k, E} \mathbf{E}_{x_{j}}}_{(a)}
+  \underbrace{\mE_{x_{i}}^{\top} \mW_{q}^{\top} \mW_{k, E} \mE_{x_{j}}}_{(a)}
   +
-  \underbrace{\mathbf{E}_{x_{i}}^{\top} \mathbf{W}_{q}^{\top} \mathbf{W}_{k, R} {\color{blue} \mathbf{R}_{i-j}}}_{(b)}
+  \underbrace{\mE_{x_{i}}^{\top} \mW_{q}^{\top} \mW_{k, R} {\color{blue} \mathbf{R}_{i-j}}}_{(b)}
   +
-  \underbrace{{\color{red} \vu^{\top}} \mathbf{W}_{k, E} \mathbf{E}_{x_{j}}}_{(c)}
+  \underbrace{{\color{red} \vu^{\top}} \mW_{k, E} \mE_{x_{j}}}_{(c)}
   +
-  \underbrace{{\color{red} \vv^{\top}} \mathbf{W}_{k, R} {\color{blue} \mathbf{R}_{i-j}}}_{(d)}
+  \underbrace{{\color{red} \vv^{\top}} \mW_{k, R} {\color{blue} \mathbf{R}_{i-j}}}_{(d)}
   \label{eq:att_rel}
 \end{align}
+
+
+Simply show the translation equivariance with relative encoding.
+
+\subsection{Attention on a Pixel at any Relative Position}
+
+\begin{align}
+  \tH_{i,j,:} = \sum_{k\in\{1,\dots,K\}} \delta \tX \mW^V_k
+\end{align}
+define dirac $\delta_{i,j}$ is a matrix whose elements are zero everywe 
 
 To mimic the CNN computation, each attention head focuses on a pixel at a given relative position.
 Hence reproducing a $3\times 3$ kernel requires 9 attention heads and the ability for each of them to perfectly attend on
 one pixel at a relative position.
 Given that spatial convolution filters are not conditioned on the input data, we set $\mW_{k, E}$ and $\mW_{k, R}$ to 0, leaving only the (d) term in \eqref{eq:att_rel}.
-We further write the attention computation in the 2D setting,
+%
 \begin{align}
-  \mathbf{A}_{i, j}^{\mathrm{conv}} &= \vv^{\top} \mathbf{W}_{k, R} {\color{blue} \mathbf{R}_{\vp_i - \vp_j}}
+  \mathbf{A}_{i, j}^{\mathrm{conv}} &= \vv^{\top} \mW_{k, R} {\color{blue} \mathbf{R}_{i - j}}
 \end{align}
-with $\vp_i$ the row and column position of pixel $i$. As both $\vv$ and $\mathbf{W}_{k, R}$ are learnable parameters, we simplify the expression to learn a single vector $\mathbf{t}_h$ for each head $h$.
+As both $\vv$ and $\mW_{k, R}$ are learnable parameters, we simplify the expression to learn a single vector $\mathbf{t}_h$ for each head $h$.
 
-\subsection{Attention on a Pixel at any Relative Position}
 
 \paragraph{How to discern relative position?} The goal is to reproduce the $3\times 3$ pattern of CNN kernel with attention instead.
 Each head should be able to chose which pixel to attend based on its relative position to the query token $x_i$.
