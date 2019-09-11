@@ -79,8 +79,8 @@ config = OrderedDict(
     # === LOGGING ===
     only_time_one_epoch=False,  # show timer after 1 epoch and stop
     only_list_parameters=False,
+    num_keep_checkpoints=10,
     plot_attention_positions=True,
-    experiment_name=None,
     output_dir="./output.tmp",
 )
 # fmt: on
@@ -100,35 +100,22 @@ def main():
     Directory structure:
 
       output_dir
-      |-- experiment_name
-            |-- config.yaml
-            |-- best.checkpoint
-            |-- last.checkpoint
-      |-- 00_logdir
-            |-- experiment_name
-                |-- tensorboard logs...
-
-    If no `experiment_name` is given, save output directly in `output_dir`
-    and does not log for tensorboard.
-    Point tensorboard to `00_logdir`.
+        |-- config.yaml
+        |-- best.checkpoint
+        |-- last.checkpoint
+        |-- tensorboard logs...
     """
 
     global output_dir
-    output_dir = os.path.join(config["output_dir"], config["experiment_name"] or "")
-    os.makedirs(output_dir, exist_ok=True)
-    logdir = None
-    if config["experiment_name"]:
-        logdir = os.path.join(config["output_dir"], "00_logdir", config["experiment_name"])
+    output_dir = config["output_dir"]
+    os.makedirs(output_dir, exist_ok = True)
 
     # save config in YAML file
     store_config()
 
     # create tensorboard writter
-    if logdir:
-        writer = SummaryWriter(logdir=logdir, max_queue=100, flush_secs=10)
-        print(f"Tensorboard logs saved in '{logdir}'")
-    else:
-        writer = DummySummaryWriter()
+    writer = SummaryWriter(logdir=output_dir, max_queue=100, flush_secs=10)
+    print(f"Tensorboard logs saved in '{output_dir}'")
 
     # Set the seed
     torch.manual_seed(config["seed"])
@@ -151,6 +138,9 @@ def main():
 
     # We keep track of the best accuracy so far to store checkpoints
     best_accuracy_so_far = utils.accumulators.Max()
+    checkpoint_every_n_epoch = None
+    if config["num_keep_checkpoints"] > 0:
+        checkpoint_every_n_epoch = max(1, config["num_epochs"] // config["num_keep_checkpoints"])
     global_step = 0
 
     for epoch in range(config["num_epochs"]):
@@ -288,6 +278,8 @@ def main():
         is_best_so_far = best_accuracy_so_far.add(mean_test_accuracy.value())
         if is_best_so_far:
             store_checkpoint("best.checkpoint", model, epoch, mean_test_accuracy.value())
+        if (epoch + 1) % checkpoint_every_n_epoch == 0:
+            store_checkpoint("{:04d}.checkpoint".format(epoch), model, epoch, mean_test_accuracy.value())
 
         # writer.flush()
 
