@@ -17,6 +17,7 @@ from tensorboardX import SummaryWriter
 from collections import OrderedDict
 from termcolor import colored
 from utils.logging import get_num_parameter, human_format, DummySummaryWriter, sizeof_fmt
+from torch.utils.data import TensorDataset
 from utils.plotting import plot_attention_positions_all_layers
 from utils.config import parse_cli_overides
 import yaml
@@ -296,6 +297,23 @@ def get_dataset(test_batch_size=100, shuffle_train=True, num_workers=2, data_roo
         dataset = torchvision.datasets.CIFAR10
     elif config["dataset"] == "Cifar100":
         dataset = torchvision.datasets.CIFAR100
+    elif config["dataset"].startswith("/"):
+        train_data = torch.load(config["dataset"] + ".train")
+        test_data = torch.load(config["dataset"] + ".test")
+        training_set = TensorDataset(train_data["data"], train_data["target"])
+        test_set = TensorDataset(test_data["data"], test_data["target"])
+
+        training_loader = torch.utils.data.DataLoader(
+            training_set,
+            batch_size=config["batch_size"],
+            shuffle=shuffle_train,
+            num_workers=num_workers,
+        )
+        test_loader = torch.utils.data.DataLoader(
+            test_set, batch_size=test_batch_size, shuffle=False, num_workers=num_workers
+        )
+
+        return training_loader, test_loader
     else:
         raise ValueError("Unexpected value for config[dataset] {}".format(config["dataset"]))
 
@@ -372,7 +390,11 @@ def get_model(device):
     :param device: instance of torch.device
     :return: An instance of torch.nn.Module
     """
-    num_classes = 100 if config["dataset"] == "Cifar100" else 10
+    num_classes = 2
+    if config["dataset"] == "Cifar100":
+        num_classes = 100
+    elif config["dataset"] == "Cifar10":
+        num_classes = 10
 
     model = {
         "vgg11": lambda: models.VGG("VGG11", num_classes, batch_norm=False),
