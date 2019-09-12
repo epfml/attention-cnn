@@ -167,7 +167,7 @@ Applied to an input $\mX \in \R^{T\times d}$, the output of the Self-Attention l
   \mY_{t,:} &= \mH_{t,:} \mW^O + \mX_{t,:}\,,
   \label{eq:attention}
 \end{align}
-where the $\operatorname{softmax}(\cdot)$ is taken over all the dimensions of the tensor but the first one. For simplicity, we exclude the batch normalization layers and constant factors.%
+where the $\operatorname{softmax}(\cdot)$ is taken over the second dimension of the attention coefficient matrix $\mA_k~\in~\R^{T\times T}$. For simplicity, we exclude the batch normalization layers and constant factors.%
 \todo{JB: check dimensions and readability}%
 
 
@@ -403,7 +403,7 @@ The sizes of the models are displayed in Table~\ref{tab:parameter_size}.
   \centering
   \begin{tabular}{cc}
     \toprule
-    Model & Number of parameters\\
+    Models & Number of parameters\\
     \midrule
     ResNet10 & 4.9M\\
     BERT 4 layers & 1.85M\\
