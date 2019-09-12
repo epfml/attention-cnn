@@ -61,7 +61,7 @@ class BertImage(nn.Module):
         # self.features_downscale = nn.Linear(self.hidden_size, num_channels_in)
 
         self.encoder = BertEncoder(bert_config)
-        self.classifier = nn.Linear(self.hidden_size, num_classes)
+        self.classifier = nn.Linear(self.hidden_size * 2, num_classes)
         # self.pixelizer = nn.Linear(self.hidden_size, 3)
         self.register_buffer("attention_mask", torch.tensor(1.0))
 
@@ -183,8 +183,13 @@ class BertImage(nn.Module):
                 output_all_encoded_layers=False,  # TODO
             )[0]
 
+        # Pooling: concatenate mean and max pooling
         # mean pool for representation (features for classification)
-        cls_representation = representations.view(b, -1, representations.shape[-1]).mean(dim=1)
+        cls_representation = torch.cat([
+            representations.view(b, -1, representations.shape[-1]).mean(dim=1),
+            representations.view(b, -1, representations.shape[-1]).max(dim=1)[0]
+        ], dim=1)
+
         cls_prediction = self.classifier(cls_representation)
 
         return cls_prediction
