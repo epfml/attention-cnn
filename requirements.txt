@@ -1,0 +1,5 @@
+boto3==1.9.234
+tabulate==0.8.3
+tensorboardX==1.8
+termcolor==1.1.0
+thop==0.0.31
