@@ -63,7 +63,8 @@ config = OrderedDict(
     add_positional_encoding_to_input=False,
     use_learned_2d_encoding=False,
     share_position_encoding=False,           # share learned relative position encoding for all layers
-    use_attention_data=False,                # use attention between pixel values instead of only positional
+    use_attention_data=False,                # use attention between pixel values instead of only positional (q.k attention)
+    query_positional_score=False,            # use q.r attention (see Ramachandran, 2019)
     use_gaussian_attention=True,
     attention_isotropic_gaussian=False,
     prune_degenerated_heads=False,           # remove heads with Sigma^{-1} close to 0 or very singular (kappa > 1000) at epoch 0
@@ -123,7 +124,7 @@ def main():
     np.random.seed(config["seed"])
 
     # We will run on CUDA if there is a GPU available
-    device = torch.device("cuda:0" if not config["no_cuda"] and torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if not config["no_cuda"] and torch.cuda.is_available() else "cpu")
 
     # Configure the dataset, model and the optimizer based on the global
     # `config` dictionary.
@@ -488,7 +489,8 @@ def get_model(device):
     }[config["model"]]()
 
     model.to(device)
-    if device == "cuda":
+    if device == torch.device("cuda"):
+        print("Use DataParallel if multi-GPU")
         model = torch.nn.DataParallel(model)
         torch.backends.cudnn.benchmark = True
 

@@ -23,9 +23,10 @@ class BertImage(nn.Module):
     Wrapper for a Bert encoder
     """
 
-    def __init__(self, config, num_classes):
+    def __init__(self, config, num_classes, output_attentions=False):
         super().__init__()
 
+        self.output_attentions = output_attentions
         self.with_resnet = config["pooling_use_resnet"]
         self.hidden_size = config["hidden_size"]
         self.pooling_concatenate_size = config["pooling_concatenate_size"]
@@ -53,7 +54,8 @@ class BertImage(nn.Module):
         self.features_upscale = nn.Linear(num_channels_in, self.hidden_size)
         # self.features_downscale = nn.Linear(self.hidden_size, num_channels_in)
 
-        self.encoder = BertEncoder(bert_config)
+        # output all attentions, won't return them if self.output_attentions is False
+        self.encoder = BertEncoder(bert_config, output_attentions=True)
         self.classifier = nn.Linear(self.hidden_size, num_classes)
         # self.pixelizer = nn.Linear(self.hidden_size, 3)
         self.register_buffer("attention_mask", torch.tensor(1.0))
@@ -169,26 +171,21 @@ class BertImage(nn.Module):
         # feature upscale to BERT dimension
         batch_features = self.features_upscale(batch_features)
 
-        # replace masked "pixels" by [MSK] token
-        # if feature_mask is not None:
-        # batch_features[~feature_mask] = self.mask_embedding
-
-        # add positional embedding
-        # batch_features = self.positional_encoding(batch_features)
-
-        # replace classification token (top left pixel)
         b, w, h, _ = batch_features.shape
-        # w_cls, h_cls = w // 2, h // 2
-        # batch_features[:, w_cls, h_cls, :] = self.cls_embedding.view(1, -1)
 
-        representations = self.encoder(
+        all_attentions, all_representations = self.encoder(
             batch_features,
             attention_mask=self.attention_mask,
-            output_all_encoded_layers=False,  # TODO
-        )[0]
+            output_all_encoded_layers=False,
+        )
+
+        representations = all_representations[0]
 
         # mean pool for representation (features for classification)
         cls_representation = representations.view(b, -1, representations.shape[-1]).mean(dim=1)
         cls_prediction = self.classifier(cls_representation)
 
-        return cls_prediction
+        if self.output_attentions:
+            return cls_prediction, all_attentions
+        else:
+            return cls_prediction

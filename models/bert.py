@@ -191,6 +191,7 @@ class BertConfig(object):
         use_learned_2d_encoding=None,
         share_position_encoding=None,
         use_attention_data=None,
+        query_positional_score=None,
         use_gaussian_attention=None,
         add_positional_encoding_to_input=None,
         positional_encoding=None,
@@ -360,23 +361,31 @@ class Learned2DRelativeSelfAttention(nn.Module):
         self.output_attentions = output_attentions
         self.num_attention_heads = config.num_attention_heads
         self.use_attention_data = config.use_attention_data
+        self.query_positional_score = config.query_positional_score
         self.hidden_size = config.hidden_size
         self.all_head_size = config.hidden_size * self.num_attention_heads
 
         max_position_embeddings = config.max_position_embeddings
 
         position_embedding_size = config.hidden_size
+        if self.query_positional_score:
+            position_embedding_size = config.hidden_size // 2
         if config.position_encoding_size != -1:
             position_embedding_size = config.position_encoding_size
 
         self.row_embeddings = nn.Embedding(2 * max_position_embeddings - 1, position_embedding_size)
         self.col_embeddings = nn.Embedding(2 * max_position_embeddings - 1, position_embedding_size)
 
-        self.head_keys_row = nn.Linear(position_embedding_size, self.num_attention_heads, bias=False)
-        self.head_keys_col = nn.Linear(position_embedding_size, self.num_attention_heads, bias=False)
+        if not self.query_positional_score:
+            self.head_keys_row = nn.Linear(position_embedding_size, self.num_attention_heads, bias=False)
+            self.head_keys_col = nn.Linear(position_embedding_size, self.num_attention_heads, bias=False)
 
-        if self.use_attention_data:
+        # need query linear transformation
+        if self.use_attention_data or self.query_positional_score:
             self.query = nn.Linear(config.hidden_size, self.all_head_size)
+
+        # need key linear transformation
+        if self.use_attention_data:
             self.key = nn.Linear(config.hidden_size, self.all_head_size)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
@@ -392,31 +401,113 @@ class Learned2DRelativeSelfAttention(nn.Module):
         assert len(hidden_states.shape) == 4
         b, w, h, c = hidden_states.shape
 
-        data_attention_scores = None
-        if self.use_attention_data:
-            # B, H, W, n_h, d_h
-            q = self.query(hidden_states).view(b, w, h, self.num_attention_heads, self.hidden_size)
-            k = self.key(hidden_states).view(b, w, h, self.num_attention_heads, self.hidden_size)
-            data_attention_scores = torch.einsum("bijhd,bklhd->bijhkl", q, k)
-            data_attention_scores /= math.sqrt(self.hidden_size)
+        # -- B, W, H, num_heads, W, H
+        attention_scores, attention_scores_per_type = self.compute_attention_scores(hidden_states)
+        shape = attention_scores.shape
+        attention_probs = nn.Softmax(dim=-1)(attention_scores.view(*shape[:-2], -1)).view(shape)
+        # expand batch dim if 1
+        if shape[0] != b:
+            attention_probs = attention_probs.expand(b, *shape[1:])
 
-        attention_probs = self.get_attention_probs(w, h, data_attention_scores)
         attention_probs = self.dropout(attention_probs)
 
-        with_batch_dim = "b" if self.use_attention_data else ""
-        input_values = torch.einsum(with_batch_dim + 'ijhkl,bkld->bijhd', attention_probs, hidden_states)
+        input_values = torch.einsum('bijhkl,bkld->bijhd', attention_probs, hidden_states)
         input_values = input_values.contiguous().view(b, w, h, -1)
         output_value = self.value(input_values)
 
         if self.output_attentions:
-            return output_value, attention_probs
+            attention_scores_per_type["attention_scores"] = attention_scores
+            attention_scores_per_type["attention_probs"] = attention_probs
+            return attention_scores_per_type, output_value
         else:
             return output_value
 
-    def get_attention_probs(self, width, height, data_attention_scores=None):
+    def compute_attention_scores(self, hidden_states):
         """Compute the positional attention for an image of size width x height
+        Returns: tensor of attention scores (1 or batch, width, height, num_head, width, height)
+
+        Attention scores:
+            * Position only
+                Options: use_attention_data=False, query_positional_score=False
+                w_q^T * r
+                where w_q is a learned vector per head
+            * Query and positional encoding (without query key attention scores),
+                same as q * r in (Ramachandran et al., 2019)
+                Options: use_attention_data=False, query_positional_score=True
+                X * W_Q * r
+            * With data
+                same as q*k + q*r in (Ramachandran et al., 2019)
+                Options: use_attention_data=True, query_positional_score=True
+                X * W_Q * W_K^T * X^T + X * W_Q * r
+            * Last option use_attention_data=True, query_positional_score=False was not used
+        """
+        batch_size, height, width, hidden_dim = hidden_states.shape
+
+        # compute query data if needed
+        if self.use_attention_data or self.query_positional_score:
+            q = self.query(hidden_states)
+            q = q.view(batch_size, width, height, self.num_attention_heads, self.hidden_size)
+
+        # compute key data if needed
+        if self.use_attention_data:
+            k = self.key(hidden_states)
+            k = k.view(batch_size, width, height, self.num_attention_heads, self.hidden_size)
+
+        # Compute attention scores based on position
+        # Probably not optimal way to order computation
+        relative_indices = self.relative_indices[:width,:width].reshape(-1)
+        row_embeddings = self.row_embeddings(relative_indices)
+
+        relative_indices = self.relative_indices[:height,:height].reshape(-1)
+        col_embeddings = self.col_embeddings(relative_indices)
+
+        # keep attention scores/prob for plotting
+        attention_scores_per_type = {}
+        sqrt_normalizer = math.sqrt(self.hidden_size)
+
+        if not self.query_positional_score:
+            # Caveat: sqrt rescaling is not used in this case
+            row_scores = self.head_keys_row(row_embeddings).view(1, width, 1, width, self.num_attention_heads)
+            col_scores = self.head_keys_col(col_embeddings).view(height, 1, height, 1, self.num_attention_heads)
+            # -- H, W, H, W, num_attention_heads
+            attention_scores = row_scores + col_scores
+            # -- H, W, num_attention_heads, H, W
+            attention_scores = attention_scores.permute(0, 1, 4, 2, 3)
+            # -- 1, H, W, num_attention_heads, H, W
+            attention_scores = attention_scores.unsqueeze(0)
+
+            attention_scores_per_type["w_q^Tr"] = attention_scores
+
+        else:  # query_positional_score
+            # B, W, H, num_attention_heads, D // 2
+            q_row = q[:, :, :, :, :self.hidden_size // 2]
+            q_col = q[:, :, :, :, self.hidden_size // 2:]
+
+            row_scores = torch.einsum("bijhd,ikd->bijhk", q_row, row_embeddings.view(width, width, -1))
+            col_scores = torch.einsum("bijhd,jld->bijhl", q_col, col_embeddings.view(height, height, -1))
+
+            # -- B, H, W, num_attention_heads, H, W
+            attention_scores = row_scores.unsqueeze(-1) + col_scores.unsqueeze(-2)
+            attention_scores = attention_scores / sqrt_normalizer
+
+            # save
+            attention_scores_per_type["q^Tr"] = attention_scores
+
+        # Compute attention scores based on data
+        if self.use_attention_data:
+            attention_content_scores = torch.einsum("bijhd,bklhd->bijhkl", q, k)
+            attention_content_scores = attention_content_scores / sqrt_normalizer
+            attention_scores = attention_scores + attention_content_scores
+            
+            # save
+            attention_scores_per_type["q^Tk"] = attention_content_scores
+
+        return attention_scores, attention_scores_per_type
+
+    def get_attention_probs(self, width, height):
+        """LEGACY
+        Compute the positional attention for an image of size width x height
         Returns: tensor of attention probabilities (width, height, num_head, width, height)
-        data_attention_scores:  (B, H, W, num_attention_heads, H, W)
         """
         relative_indices = self.relative_indices[:width,:width].reshape(-1)
         row_scores = self.head_keys_row(self.row_embeddings(relative_indices)).view(1, width, 1, width, self.num_attention_heads)
@@ -429,17 +520,13 @@ class Learned2DRelativeSelfAttention(nn.Module):
         # -- H, W, num_attention_heads, H, W
         attention_scores = attention_scores.permute(0, 1, 4, 2, 3)
 
-        batch_dim = []
-        if data_attention_scores is not None:
-            attention_scores = attention_scores.unsqueeze(0) + data_attention_scores
-            batch_dim = [data_attention_scores.shape[0]]
-
         # -- H, W, num_attention_heads, H, W
-        flatten_shape = batch_dim + [height, width, self.num_attention_heads, height * width]
-        unflatten_shape = batch_dim + [height, width, self.num_attention_heads, height, width]
+        flatten_shape = [height, width, self.num_attention_heads, height * width]
+        unflatten_shape = [height, width, self.num_attention_heads, height, width]
         attention_probs = nn.Softmax(dim=-1)(attention_scores.view(*flatten_shape)).view(*unflatten_shape)
 
         return attention_probs
+
 
 class GaussianSelfAttention(nn.Module):
     def __init__(self, config, output_attentions=False, keep_multihead_output=False):
@@ -599,7 +686,7 @@ class GaussianSelfAttention(nn.Module):
         output_value = self.value(input_values)
 
         if self.output_attentions:
-            return output_value, attention_probs
+            return attention_probs, output_value
         else:
             return output_value
 
