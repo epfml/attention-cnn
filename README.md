@@ -1,7 +1,6 @@
 # Self-Attention and Convolution
 
-[On the Relationship between Self-Attention and Convolutional Layers](https://arxiv.org/pdf/1911.03584.pdf)<br/>
-Jean-Baptiste Cordonnier, Andreas Loukas and Martin Jaggi.
+The code accompanies the paper [On the Relationship between Self-Attention and Convolutional Layers](https://openreview.net/pdf?id=HJlnC1rKPB) by [Jean-Baptiste Cordonnier](http://jbcordonnier.com/), [Andreas Loukas](https://andreasloukas.blog/) and [Martin Jaggi](https://m8j.net/) that appeared in ICLR 2020.
 
 ### Abstract
 
@@ -28,14 +27,15 @@ bash runs/quadratic/run.sh
 
 ### Reference
 
-If you use this code, please cite the following [paper](https://arxiv.org/pdf/1911.03584.pdf):
+If you use this code, please cite the following [paper](https://openreview.net/pdf?id=HJlnC1rKPB):
 
 ```
-@misc{cordonnier2019relationship,
+@inproceedings{
+    Cordonnier2020On,
     title={On the Relationship between Self-Attention and Convolutional Layers},
     author={Jean-Baptiste Cordonnier and Andreas Loukas and Martin Jaggi},
-    year={2019},
-    eprint={1911.03584},
-    archivePrefix={arXiv}
+    booktitle={International Conference on Learning Representations},
+    year={2020},
+    url={https://openreview.net/forum?id=HJlnC1rKPB}
 }
 ```
